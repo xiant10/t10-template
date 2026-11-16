@@ -1,0 +1,7 @@
+{
+  "_comment": "The foundation's public addresses, as the setting that holds each, and the service and port behind it on the Compose network. scripts/render.py writes Caddy's sites from these and each module's PUBLIC_URL_SETTING, on a server (dev, prod).",
+  "AUTH_PUBLIC_URL": "auth-server:8081",
+  "WORKBENCH_PUBLIC_URL": "workbench:8083",
+  "CONSOLE_PUBLIC_URL": "t10-console:8086",
+  "LIVEKIT_PUBLIC_URL": "livekit-server:7880"
+}

@@ -1,0 +1,50 @@
+# The foundation on one machine, over compose/base.yml: every service published on 127.0.0.1,
+# and LiveKit in dev mode. Ports come from config/local/settings.env.
+
+services:
+  livekit-server:
+    # The advertised RTC ports must be the published ones, since browsers connect to them.
+    command: --dev --bind 0.0.0.0 --node-ip=127.0.0.1
+    ports:
+      - "127.0.0.1:${LIVEKIT_PORT}:7880"
+      - "127.0.0.1:${LIVEKIT_RTC_TCP_PORT}:${LIVEKIT_RTC_TCP_PORT}"
+      - "127.0.0.1:${LIVEKIT_RTC_UDP_PORT}:${LIVEKIT_RTC_UDP_PORT}/udp"
+  auth-server:
+    ports:
+      - "127.0.0.1:${AUTH_PORT}:8081"
+  t10-agent-control:
+    ports:
+      - "127.0.0.1:${AGENT_CONTROL_PORT}:8085"
+  t10-console:
+    ports:
+      - "127.0.0.1:${CONSOLE_PORT}:8086"
+  ai-gateway-llm:
+    ports:
+      - "127.0.0.1:${LLM_GATEWAY_PORT}:18080"
+  ai-gateway-tools:
+    ports:
+      - "127.0.0.1:${TOOLS_GATEWAY_PORT}:18095"
+  t10-collab:
+    ports:
+      - "127.0.0.1:${COLLAB_PORT}:8082"
+  t10-knowledge:
+    ports:
+      - "127.0.0.1:${KNOWLEDGE_PORT}:18050"
+  t10-automations:
+    ports:
+      - "127.0.0.1:${AUTOMATIONS_PORT}:18030"
+  agent-pi:
+    ports:
+      - "127.0.0.1:${AGENT_PI_PORT}:9800"
+  agent-sales:
+    ports:
+      - "127.0.0.1:${AGENT_SALES_PORT}:9810"
+  agent-ti:
+    ports:
+      - "127.0.0.1:${AGENT_TI_PORT}:18120"
+  ai-gateway-agent:
+    ports:
+      - "127.0.0.1:${AGENT_GATEWAY_PORT}:18090"
+  workbench:
+    ports:
+      - "127.0.0.1:${WORKBENCH_PORT}:8083"

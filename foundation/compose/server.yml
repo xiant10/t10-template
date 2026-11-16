@@ -1,0 +1,35 @@
+# Every server environment (dev, prod), over compose/base.yml: Caddy in front with TLS, and
+# LiveKit for real. Nothing else is published: people reach services only through Caddy.
+
+services:
+  # Its sites are generated/<env>/Caddyfile, written by scripts/render.py from each part's public
+  # addresses. Certificates live in the caddy-data volume. After the Caddyfile changes,
+  # `make deploy` reloads it.
+  caddy:
+    image: ${CADDY_IMAGE}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  livekit-server:
+    # Media goes straight to the host, not through Caddy, so its ports are published as is and
+    # it advertises the host's public IP.
+    command: --bind 0.0.0.0 --node-ip=${LIVEKIT_NODE_IP}
+    ports:
+      - "${LIVEKIT_RTC_TCP_PORT}:${LIVEKIT_RTC_TCP_PORT}"
+      - "${LIVEKIT_RTC_UDP_PORT}:${LIVEKIT_RTC_UDP_PORT}/udp"
+
+volumes:
+  caddy-data:
+  caddy-config:

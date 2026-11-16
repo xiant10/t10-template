@@ -1,0 +1,7 @@
+# Component for the local layer: one machine, such as Docker Desktop. Will hold Postgres and
+# LiveKit in the cluster, LoadBalancer services on the ports in config/local/settings.env, and
+# dev mode, adapted from the foundation workspace's deploy/k8s/overlays/local. Like
+# ../../compose/local.yml. A skeleton until phase E (docs/plan.md).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources: []

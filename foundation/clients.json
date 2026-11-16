@@ -1,0 +1,150 @@
+{
+  "_comment": "The foundation's OAuth clients and runtimes, from t10-quickstart's config/clients.all.yaml on Nov 15, 2026, with module entries moved to each module's pack (clients.fragment.json). Runtimes this deployment may not run are optional, so a missing service account doesn't stop auth-server. JSON is YAML, so auth-server reads the rendered file as is.",
+  "clients": [
+    {
+      "id": "t10-mac-client",
+      "name": "t10 for Mac",
+      "type": "public",
+      "redirect_uris": [
+        "http://127.0.0.1/callback"
+      ],
+      "idle_ttl": "720h",
+      "absolute_ttl": "2160h"
+    },
+    {
+      "id": "t10-mobile",
+      "name": "t10 mobile app",
+      "type": "public",
+      "direct_login": true,
+      "idle_ttl": "2160h"
+    },
+    {
+      "id": "t10-workbench",
+      "name": "Workbench",
+      "type": "confidential",
+      "tenant": "required",
+      "redirect_uris": [
+        "${WORKBENCH_PUBLIC_URL}/auth/callback"
+      ],
+      "secret_sha256": "${sha256:WORKBENCH_CLIENT_SECRET}",
+      "idle_ttl": "12h",
+      "absolute_ttl": "168h"
+    },
+    {
+      "id": "t10-console",
+      "name": "Platform console",
+      "type": "confidential",
+      "tenant": "none",
+      "redirect_uris": [
+        "${CONSOLE_PUBLIC_URL}/auth/callback"
+      ],
+      "secret_sha256": "${sha256:CONSOLE_CLIENT_SECRET}",
+      "idle_ttl": "1h",
+      "absolute_ttl": "12h"
+    }
+  ],
+  "runtimes": [
+    {
+      "name": "t10-livekit-agent",
+      "optional": true,
+      "voice": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "knowledge:read"
+      ],
+      "audiences": [
+        "agent-pi",
+        "agent-sales",
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm"
+      ]
+    },
+    {
+      "name": "agent-pi",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "knowledge:read"
+      ],
+      "audiences": [
+        "agent-pi",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm"
+      ],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    },
+    {
+      "name": "agent-sales",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "knowledge:read"
+      ],
+      "audiences": [
+        "agent-sales",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm"
+      ],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    },
+    {
+      "name": "agent-ti",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "work:send",
+        "knowledge:read"
+      ],
+      "audiences": [
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm"
+      ],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    },
+    {
+      "name": "t10-automations",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "work:send",
+        "knowledge:read"
+      ],
+      "audiences": [
+        "ai-gateway",
+        "agent-pi",
+        "agent-sales",
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm"
+      ]
+    }
+  ],
+  "exchangers": [
+    "ai-gateway-tools"
+  ]
+}

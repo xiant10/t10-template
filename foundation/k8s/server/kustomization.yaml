@@ -1,0 +1,8 @@
+# Component for the server layer (dev, prod): a real cluster. Will hold Postgres in the cluster
+# (a StatefulSet with a volume and a backup CronJob), an Ingress with cert-manager TLS for each
+# public address in foundation/public.json, replicas and disruption budgets, starting from
+# auth-server's vendored overlays/production. Like ../../compose/server.yml. A skeleton until
+# phase E (docs/plan.md).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources: []

@@ -1,0 +1,15 @@
+# Module repos, cloned by `make clone` from each module's source.env. Each is its own repo.
+/src/
+
+# Written by scripts, never edited.
+/generated/
+
+# Decrypted secrets must never be committed.
+*.dec
+*.dec.*
+.env
+
+# Plain-text secrets, per checkout. Only the SOPS-encrypted <env>.enc.env are committed.
+/site/secrets/*.env
+!/site/secrets/*.enc.env
+__pycache__/

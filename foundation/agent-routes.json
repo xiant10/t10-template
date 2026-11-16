@@ -1,0 +1,91 @@
+{
+  "_comment": "The foundation's agents, from t10-quickstart's config/agent-routes.json (dc5d0bc), with module agents moved to their packs and replicas renamed to match AGENT_INSTANCE_ID in foundation/config/. scripts/render.py adds each module's agents and writes generated/<env>/agent-routes.json, which the agent-routes service publishes to t10-agent-control.",
+  "revision": 1,
+  "pools": {
+    "assistant": {
+      "state": "active",
+      "audience": "agent-pi",
+      "capabilities": [
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "durable_runs"
+      ],
+      "replicas": {
+        "agent-pi-0": "http://agent-pi:9800"
+      }
+    },
+    "sales": {
+      "state": "active",
+      "audience": "agent-sales",
+      "capabilities": [
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "durable_runs"
+      ],
+      "replicas": {
+        "agent-sales-0": "http://agent-sales:9810"
+      }
+    },
+    "ti": {
+      "agent": "ti",
+      "state": "active",
+      "harness": "ti",
+      "audience": "agent-ti",
+      "capabilities": [
+        "durable_runs",
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "tenant_config"
+      ],
+      "replicas": {
+        "agent-ti-0": "http://agent-ti:18120/agents/ti"
+      },
+      "tools_via_gateway": true
+    }
+  },
+  "agents": {
+    "assistant": {
+      "title": "Assistant",
+      "open": true,
+      "routes": [
+        {
+          "pool": "assistant"
+        }
+      ]
+    },
+    "sales": {
+      "title": "Sales",
+      "routes": [
+        {
+          "pool": "sales"
+        }
+      ],
+      "open": true
+    },
+    "ti": {
+      "title": "Ti Assistant",
+      "routes": [
+        {
+          "pool": "ti"
+        }
+      ],
+      "tenant_agents": {
+        "customize": true,
+        "models": [
+          "chat"
+        ]
+      },
+      "open": true
+    }
+  },
+  "default_agent": "assistant"
+}

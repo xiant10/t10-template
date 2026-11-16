@@ -1,0 +1,35 @@
+# t10-template
+
+A starting point for a project that runs business modules on the t10 foundation, using only the foundation's published images. A project made from it adds its modules in `modules/` and its own choices in `site/`; everything else comes from the template, so template updates merge cleanly.
+
+How to work in it is in [`docs/guide.md`](docs/guide.md), why it's laid out this way in [`docs/design.md`](docs/design.md), what a module provides in [`docs/module.md`](docs/module.md), what's left to build in [`docs/plan.md`](docs/plan.md), and what the foundation should take back in [`docs/upstream.md`](docs/upstream.md).
+
+## Start a project
+
+1. Copy this repo, set `PROJECT_NAME` in `site/config/settings.env`, and replace this README with your project's.
+2. Add each module: `make new-module ID=<id> SERVICE=<service> PORT=<port> REPO=<url>`, then follow [`docs/module.md`](docs/module.md).
+3. Note your project's plan and open questions in `site/docs/plan.md`.
+
+## Run it
+
+You need Docker with Compose 2.24 or later, and Python 3. With no module, it runs the foundation alone.
+
+```sh
+make up                             # pinned images; local secrets are made in site/secrets/local.env
+make seed-demo                      # sample accounts
+make smoke                          # end-to-end checks
+```
+
+`make up` leaves `LLM_API_KEY` empty in `site/secrets/local.env` for an OpenAI-compatible key; with none, prefix each command with `SCRIPTED=1` to use a scripted model.
+
+| Address | What |
+| --- | --- |
+| <http://127.0.0.1:38083> | Workbench |
+| <http://127.0.0.1:38020> | Platform console |
+| <http://localhost:38081> | auth-server, the issuer |
+
+It runs the whole foundation, the same services as t10-quickstart's `compose.all.yml`, with every conversation, model call and tool call going through `ai-gateway`.
+
+Sign in as `admin@acme.example`, with `AUTH_ADMIN_PASSWORD` from `site/secrets/local.env`. After `make seed-demo`, sample users are in tenant `ten_sample-acme` with password `t10-sample-password`.
+
+The ports are 38xxx and 37xxx, so this runs beside t10-quickstart. Override them in `site/config/local/settings.env`.
