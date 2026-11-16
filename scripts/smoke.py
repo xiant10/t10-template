@@ -10,10 +10,12 @@ of its own (docs/plan.md).
 2. The bootstrap admin signs in (password grant: dev mode only).
 3. Each module answers /v1/module and /v1/access for that person.
 4. auth-server's landing data lists each module's app for the tenant.
-5. Every agent in the route document answers session.create by name through ai-gateway-agent.
-6. Each module's modules/<id>/hooks/smoke.py, if it has one, such as a turn through its agent.
-   It runs in here, with check, http, compose, tool_calls, token, cfg, SCRIPTED, the module's
-   module.env as `module`, and its address as `url`.
+5. Every agent in the route document answers session.create by name through ai-gateway-agent,
+   and each module's agent answers a turn. With the scripted model and a module's
+   compose/scripted.yml, that turn's tool call reaches the module through ai-gateway-tools.
+6. Each module's modules/<id>/hooks/smoke.py, if it has one. It runs in here, with check, http,
+   compose, agent, open_session, turn, tool_calls, token, cfg, SCRIPTED, the module's module.env
+   as `module`, and its address as `url`.
 7. With the scripted model (SCRIPTED=1), no identity header reached the model.
 """
 import json
@@ -78,6 +80,48 @@ def tool_calls(session, wait=30):
     return [json.loads(line) for line in seen.splitlines() if session in line]
 
 
+def agent(method, params=None, name=None, session=None):
+    """One call to ai-gateway-agent as the admin: (status, its result, or the error)."""
+    headers = {"Authorization": f"Bearer {token}", "content-type": "application/json", "Agent-Method": method}
+    headers.update({k: v for k, v in (("Agent-Name", name), ("Agent-Session-Id", session)) if v})
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}).encode()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(port("AGENT_GATEWAY_PORT") + "/agent", data=body, headers=headers), timeout=15) as r:
+            return r.status, json.load(r).get("result", {})
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()[:200]
+
+
+def open_session(name, wait=30):
+    """session.create with the agent `name`: its session ID, or the error. Retries while no
+    replica is ready, as ai-gateway-agent takes a few seconds to see a newly published route."""
+    for _ in range(wait):
+        status, result = agent("session.create", name=name)
+        if status == 200:
+            return result.get("sessionId", "")
+        if b"replica_unavailable" not in result:
+            break
+        time.sleep(1)
+    return f"{status} {result}"
+
+
+def turn(name, text, wait=60):
+    """A turn with the agent `name`, as the admin: (its session, the messages once it replied),
+    or ("", []) if no session opened."""
+    session = open_session(name)
+    if not session.startswith(name + "."):
+        return "", []
+    agent("session.prompt", {"input": text, "requestId": f"smoke-{int(time.time())}", "wait": False}, session=session)
+    messages = []
+    for _ in range(wait):
+        time.sleep(1)
+        status, result = agent("session.messages", session=session)
+        messages = result.get("messages", []) if status == 200 else []
+        if any(m.get("role") == "assistant" and m.get("stopReason") == "stop" for m in messages):
+            break
+    return session, messages
+
+
 # 1. Health.
 # Only what runs: a component that's off has no port or public address among the settings.
 if LOCAL:
@@ -127,26 +171,29 @@ apps = [a["id"] for t in (body.get("workbench", {}).get("tenants", []) if status
 for m, _, _ in MODULES:
     check(f"auth-server lists the {m.get('AGENT_TITLE', m['MODULE_ID'])} app", m["MODULE_ID"] in apps, f"{status} {apps}")
 
-# 5. Every agent in the route document is reachable by name through ai-gateway-agent.
+# 5. Every agent in the route document is reachable by name through ai-gateway-agent, and each
+# module's answers a turn, calling the module's tool with the scripted model.
 routes = json.loads((lib.GENERATED / ENV / "agent-routes.json").read_text())
-gateway = port("AGENT_GATEWAY_PORT") + "/agent"
-for agent in sorted(routes["agents"]):
-    req = urllib.request.Request(gateway, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "session.create", "params": {}}).encode(),
-                                 headers={"Authorization": f"Bearer {token}", "content-type": "application/json",
-                                          "Agent-Method": "session.create", "Agent-Name": agent})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            sid = json.load(r).get("result", {}).get("sessionId", "")
-    except urllib.error.HTTPError as e:
-        sid = f"{e.code} {e.read()[:200]}"
-    check(f"ai-gateway-agent routes {agent}", sid.startswith(agent + "."), sid)
+for name in sorted(routes["agents"]):
+    sid = open_session(name)
+    check(f"ai-gateway-agent routes {name}", sid.startswith(name + "."), sid)
+for m, _, folder in MODULES:
+    if not m.get("AGENT"):
+        continue
+    session, messages = turn(m["AGENT"], "What can you tell me about my access here?")
+    replies = [x.get("text", "") for x in messages if x.get("role") == "assistant" and x.get("text")]
+    check(f"the {m['AGENT_TITLE']} agent answers a turn", bool(replies), f"{messages}"[-300:] if session else "no session opened")
+    if SCRIPTED and session and (folder / "compose" / "scripted.yml").exists():
+        calls = tool_calls(session)
+        check(f"its tool call reached {m['SERVICE']} through ai-gateway-tools",
+              any(c.get("target", "").startswith(f"server:{m['MODULE_ID']}/") and c.get("outcome") == "ok" for c in calls), f"{calls}"[-300:])
 
 # 6. Each module's own checks.
 for m, url, folder in MODULES:
     hook = folder / "hooks" / "smoke.py"
     if hook.exists():
-        runpy.run_path(str(hook), init_globals=dict(check=check, http=http, compose=compose, tool_calls=tool_calls, token=token, cfg=cfg,
-                                                     SCRIPTED=SCRIPTED, module=m, url=url))
+        runpy.run_path(str(hook), init_globals=dict(check=check, http=http, compose=compose, agent=agent, open_session=open_session, turn=turn, tool_calls=tool_calls,
+                                                     token=token, cfg=cfg, SCRIPTED=SCRIPTED, module=m, url=url))
 
 # 7. No identity header reached the model.
 if SCRIPTED:

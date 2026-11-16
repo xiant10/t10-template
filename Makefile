@@ -1,7 +1,8 @@
 # A project on the published t10 foundation images: foundation/, modules/<id>/ and site/.
 # See README.md.
 #
-# ENV=local (default), dev, prod, or another in site/config/. DEV=1 builds each module from its
+# ENV=local (default), dev, prod, or another in site/config/. A module whose code is in src/ is
+# always built from there on local; DEV=1 also builds each module in a repo of its own from its
 # checkout in src/ (local only).
 # SCRIPTED=1 uses a scripted model, so nothing needs LLM_API_KEY.
 
@@ -10,15 +11,17 @@ export ENV DEV SCRIPTED MODULE IMAGE
 COMPOSE := scripts/compose.sh
 PY := python3 -I -B
 
-.PHONY: help clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check config-show routes-publish new-module template-update sync-module pin rotate
+.PHONY: help clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
 
-clone: ## Clone each module's repo (its source.env) into src/, if missing
-	@$(PY) scripts/lib.py sources | while read -r dir url; do [ -d "src/$$dir" ] || git clone "$$url" "src/$$dir"; done
+clone: ## Clone each module that has a repo of its own (its source.env) into src/, kept out of git
+	@$(PY) scripts/lib.py sources | while read -r dir url; do \
+		grep -qxF "/src/$$dir/" .git/info/exclude 2>/dev/null || echo "/src/$$dir/" >>.git/info/exclude; \
+		[ -d "src/$$dir" ] || git clone "$$url" "src/$$dir"; done
 
-status: ## Branch and changes in this repo and each module repo in src/
+status: ## Branch and changes in this repo and in each module repo cloned into src/
 	@git status -sb | head -1; git status --short
 	@$(PY) scripts/lib.py sources | while read -r dir url; do [ ! -d "src/$$dir" ] || { printf '\n%s: ' "src/$$dir"; git -C "src/$$dir" status -sb | head -1; git -C "src/$$dir" status --short; }; done
 
@@ -30,8 +33,12 @@ render: ## Write the bundle in generated/<env>/ that up and deploy run; every co
 
 # --remove-orphans: containers of a service no longer in the stack, such as a component left out
 # of FOUNDATION, go too.
-up: ## Start the stack and wait until it's healthy
-	@$(COMPOSE) up -d --wait --wait-timeout 300 --remove-orphans $(if $(DEV),--build)
+# --build: builds what has a build: section, each module whose code is in src/ (and with DEV=1,
+# the others' checkouts); Docker's cache makes it quick when nothing changed. Then publishes the
+# route document if it changed, so a new module's agent is routed (upstream U12).
+up: ## Start the stack and wait until it's healthy; modules in src/ are built first
+	@$(COMPOSE) up -d --wait --wait-timeout 300 --remove-orphans --build
+	@$(MAKE) --no-print-directory routes-publish
 
 down: ## Stop the stack and keep its data (down-all also deletes the data)
 	@$(COMPOSE) down --remove-orphans
@@ -57,21 +64,38 @@ smoke: ## Check the running stack end to end
 check: ## Checks that need no running stack
 	@$(PY) scripts/check.py
 
+test: ## Each module's own tests, from src/, in Docker: make test (MODULE=<id> for one)
+	@scripts/test.sh
+
+reload: ## After changing a module in src/: rebuild and restart it, and what reads its pack: MODULE=<id>
+	@scripts/reload.sh
+
+verify: ## Everything, from empty volumes: test, down-all, up, seed-demo, check, smoke
+	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory down-all
+	@$(MAKE) --no-print-directory up
+	@$(MAKE) --no-print-directory seed-demo
+	@$(MAKE) --no-print-directory check
+	@$(MAKE) --no-print-directory smoke
+
+release: ## Build, push and pin a module from src/ for servers: MODULE=<id> (IMAGE_REGISTRY setting)
+	@scripts/release.sh
+
 config-show: ## A service's settings and where each came from: make config-show SVC=auth-server
 	@$(PY) scripts/config-show.py $(SVC)
 
 routes-publish: ## Publish generated/<env>/agent-routes.json to t10-agent-control, after an agent changes
-	@$(COMPOSE) run --rm --quiet-pull --entrypoint sh agent-routes -c \
+	@$(COMPOSE) run --rm --no-deps --quiet-pull --entrypoint sh agent-routes -c \
 		'out=$$(agentctl import /routes.json --reason "make routes-publish" 2>&1); s=$$?; echo "$$out"; \
 		[ $$s -eq 0 ] || echo "$$out" | grep -q "changes nothing"'
 
-new-module: ## Make modules/<id>/ for a new module: ID=crm SERVICE=t10-crm PORT=18076 (REPO=…), see docs/module.md
+new-module: ## A new module, its code in src/: ID=crm SERVICE=t10-crm PORT=18076 (REPO=… if it has its own repo)
 	@$(PY) scripts/new-module.py "$(ID)" "$(SERVICE)" "$(PORT)" $(REPO)
 
-template-update: ## Merge the template's latest (git remote template); README.md, modules/ and site/ stay yours
+template-update: ## Merge the template's latest (git remote template); README.md, modules/, site/ and src/ stay yours
 	@scripts/template-update.sh
 
-sync-module: ## Copy a module's pack out of its pinned image into modules/<id>/pack/ (MODULE=<id>, IMAGE=…)
+sync-module: ## For a module in its own repo: copy its pack out of its pinned image (MODULE=<id>, IMAGE=…)
 	@scripts/sync-module.sh
 
 pin: ## Show what each foundation image's latest is; WRITE=1 rewrites the versions.env that pins it

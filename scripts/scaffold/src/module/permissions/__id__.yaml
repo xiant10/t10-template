@@ -1,0 +1,24 @@
+{
+  "module": "__id__",
+  "prefix": "__id__",
+  "service": "__service__",
+  "app": {
+    "path": "__id__",
+    "label": "__Id__",
+    "label_zh": "__Id__",
+    "description": "The __Id__ module",
+    "description_zh": "The __Id__ module"
+  },
+  "agent": {
+    "server": "__id__",
+    "audience": "__service__",
+    "actions": ["__id__:read"]
+  },
+  "version": 1,
+  "permissions": [
+    {"key": "__id__:admin", "description": "Administer __Id__", "lifecycle": "active"}
+  ],
+  "templates": [
+    {"id": "admin", "name": "__Id__ administrator", "description": "Sets up __Id__", "permissions": ["__id__:admin"]}
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "_comment": "What __id__ adds to auth-server's clients.yaml. The project merges it with the foundation's and fills in ${VAR} and ${sha256:VAR} from its settings and secrets.",
+  "clients": [
+    {
+      "id": "__service__-web",
+      "name": "__Id__",
+      "type": "confidential",
+      "tenant": "required",
+      "redirect_uris": ["${__ID___PUBLIC_URL}/auth/callback"],
+      "secret_sha256": "${sha256:__ID___WEB_CLIENT_SECRET}",
+      "idle_ttl": "12h",
+      "absolute_ttl": "168h"
+    }
+  ],
+  "runtimes": [
+    {
+      "name": "agent-ti-__id__",
+      "optional": true,
+      "actions": ["agent:use", "knowledge:read", "__id__:read"],
+      "audiences": ["agent-ti-__id__", "t10-knowledge", "__service__", "ai-gateway-tools", "ai-gateway-llm"],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    }
+  ],
+  "_comment_grants": "Added to each foundation runtime that may run __id__'s tools; one the project doesn't run is skipped.",
+  "runtime_grants": {
+    "actions": ["__id__:read"],
+    "audiences": ["__service__"],
+    "runtimes": ["agent-pi", "agent-ti", "t10-livekit-agent", "t10-automations"]
+  }
+}

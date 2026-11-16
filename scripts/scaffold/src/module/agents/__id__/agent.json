@@ -1,0 +1,77 @@
+{
+  "agent": "__id__",
+  "bundle": "${AGENT_BUNDLE:-}",
+  "models": {
+    "chat": {
+      "provider": "openai-compatible",
+      "providerId": "gateway",
+      "modelId": "${CHAT_MODEL_ID:-qwen3.5-flash}",
+      "baseUrl": "${LLM_BASE_URL:-http://ai-gateway-llm.t10.svc.cluster.local:18080/v1}",
+      "apiKeyEnv": "LLM_API_KEY",
+      "contextWindow": 128000,
+      "maxOutputTokens": 2048,
+      "identityHeaders": "gateway"
+    }
+  },
+  "defaultProfile": "chat",
+  "profiles": {
+    "chat": {
+      "model": "chat",
+      "thinkingLevel": "off",
+      "maxActiveTools": 12,
+      "alwaysOnTools": [
+        "*"
+      ],
+      "excludeTools": [],
+      "preload": {
+        "maxTools": 6,
+        "minScore": 3
+      }
+    }
+  },
+  "instructions": [
+    {
+      "name": "base",
+      "file": "base.md",
+      "tag": false
+    }
+  ],
+  "grants": {
+    "url": "${AUTH_URL:-http://auth-server.t10.svc.cluster.local:18000}",
+    "clientId": "agent-ti-__id__",
+    "clientSecret": "${__ID___AUTH_CLIENT_SECRET:-}",
+    "actions": "agent:use,knowledge:read,__id__:read",
+    "audiences": "agent-ti-__id__,t10-knowledge,__service__,ai-gateway-tools,ai-gateway-llm"
+  },
+  "tenantSkills": {
+    "url": "${AGENT_CONTROL_URL:-http://t10-agent-control.t10.svc.cluster.local:18010}"
+  },
+  "mcpServers": [
+    {
+      "name": "modules",
+      "transport": "http",
+      "url": "${MODULES_MCP_URL:-http://ai-gateway-tools.t10.svc.cluster.local:18095/mcp/modules}",
+      "auth": "grant",
+      "prefix": "",
+      "agentContext": true
+    },
+    {
+      "name": "knowledge",
+      "transport": "http",
+      "url": "${KNOWLEDGE_MCP_URL:-http://ai-gateway-tools.t10.svc.cluster.local:18095/mcp/knowledge}",
+      "auth": "grant",
+      "prefix": "",
+      "agentContext": true
+    }
+  ],
+  "limits": {
+    "maxSessionsPerUser": 1000,
+    "maxConcurrentRunsPerUser": 20,
+    "maxToolRounds": 8
+  },
+  "durable": {
+    "stream": {
+      "timeoutMs": 120000
+    }
+  }
+}

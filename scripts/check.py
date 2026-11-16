@@ -2,13 +2,14 @@
 """`make check`: what can be checked without a running stack.
 
 1. Each module's folder is named for it, and its pack/ matches the pack in its pinned image
-   (skipped if that image has none yet).
+   (skipped if that image has none yet). A module built from src/ has no copy to compare.
 2. The environment's secrets are complete, and no prod value is a dev default.
 3. No secret's name is set in any part's config/.
 4. Grants agree, as the foundation's check-module-agents.py requires: the actions in each
    catalog's agent block are in its module.env, in its agent's own grant, and in every
    runtime clients.yaml gives its tools to.
-5. On a server (dev, prod, and any built on them), no setting is left TODO.
+5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
+   module built from src/ needs `make release` first.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
    `make deploy` can copy it to a host as it is.
 7. In a project with a `template` git remote, a warning for each template file it edited,
@@ -17,6 +18,7 @@
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -34,10 +36,14 @@ def run(*cmd, **env):
 # 1. Packs. Render first, so clients.yaml below is current.
 run(sys.executable, "-I", "-B", "scripts/render.py", ENV)
 for folder in sorted(lib.MODULES.iterdir()) if lib.MODULES.exists() else []:
-    if folder.is_dir() and not (folder / "pack" / "module.env").exists():
-        print(f"skip modules/{folder.name}: no pack yet, so not part of the stack (make sync-module MODULE={folder.name})")
+    if folder.is_dir() and not (lib.pack_of(folder) / "module.env").exists():
+        how = f"{lib.pack_of(folder).relative_to(lib.ROOT)}/module.env is missing" if lib.in_project(folder) \
+            else f"make sync-module MODULE={folder.name}"
+        print(f"skip modules/{folder.name}: no pack yet, so not part of the stack ({how})")
 for folder, _, m in lib.modules():
     check(f"modules/{folder.name} is named for its MODULE_ID", folder.name == m.get("MODULE_ID"), m.get("MODULE_ID", "not set"))
+    if lib.in_project(folder):
+        continue
     r = run("scripts/sync-module.sh", "--check", MODULE=folder.name)
     if "Could not find the file /module" in r.stderr:
         print(f"skip modules/{folder.name}/pack: its pinned image has no pack yet")
@@ -77,6 +83,21 @@ if lib.shape(ENV) != "local":
     todo += [f"{f.stem}: {k}" for f in sorted((lib.GENERATED / ENV / "env").glob("*.env"))
              for k, v in lib.read_env(f).items() if v == "TODO"]
     check(f"no TODO left in {ENV}'s settings (set them in site/config/{ENV}/)", not todo, "; ".join(todo))
+    unpinned = [k for k, v in lib.versions().items() if v == "TODO"]
+    check(f"every image {ENV} runs is pinned (make release MODULE=<id> for one built from src/)", not unpinned, ", ".join(unpinned))
+    # A module built from src/ runs its released image there, but its pack comes from src/, so
+    # both must be the same commit.
+    for folder, _, m in lib.modules():
+        if not lib.in_project(folder):
+            continue
+        src = f"src/{lib.source(folder)['SRC']}"
+        pin = lib.versions().get("T10_" + m["MODULE_ID"].upper().replace("-", "_"), "")
+        tag = re.search(r":sha-([0-9a-f]+)@", pin)
+        released = run("git", "rev-parse", "--verify", "-q", f"{tag.group(1)}^{{commit}}").stdout.strip() if tag else ""
+        last = run("git", "log", "-1", "--format=%H", "--", src).stdout.strip()
+        dirty = run("git", "status", "--porcelain", "--", src).stdout.strip()
+        check(f"{m['MODULE_ID']}: its pinned image is {src} as committed", pin == "TODO" or (released == last and not dirty),
+              f"{src} changed since its image was released: make release MODULE={m['MODULE_ID']}")
 
 # 6. Compose.
 r = run("scripts/compose.sh", "config", "--format", "json")
@@ -90,7 +111,7 @@ if r.returncode == 0:
 # 7. Template files edited in this project.
 base = run("git", "merge-base", "HEAD", "template/main")
 if base.returncode == 0:
-    edited = run("git", "diff", "--name-only", base.stdout.strip(), "--", ".", ":!README.md", ":!modules", ":!site").stdout.split()
+    edited = run("git", "diff", "--name-only", base.stdout.strip(), "--", ".", ":!README.md", ":!modules", ":!site", ":!src").stdout.split()
     for f in edited:
         print(f"warn {f} is a template file, edited here, so template updates may conflict: change it in the template instead, or for a setting, override it from site/")
 

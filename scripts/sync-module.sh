@@ -1,6 +1,6 @@
 #!/bin/sh
-# Copies a module's pack out of its image into modules/<id>/pack/, or with --check, fails if
-# modules/<id>/pack/ differs from it.
+# For a module in a repo of its own: copies its pack out of its image into modules/<id>/pack/, or
+# with --check, fails if modules/<id>/pack/ differs from it. A module built from src/ has no copy.
 #
 #   MODULE=<id> scripts/sync-module.sh [--check]    # MODULE may be left out when there's one module
 #
@@ -19,6 +19,9 @@ if [ -z "$module" ]; then
 fi
 dest=modules/$module/pack
 [ -d "modules/$module" ] || { echo "modules/$module doesn't exist" >&2; exit 1; }
+if [ -n "$(python3 -I -B scripts/lib.py built "$module" 2>/dev/null)" ]; then
+	echo "$module is built from src/, so its pack is read from there: nothing to copy" >&2; exit 1
+fi
 if [ -z "${IMAGE:-}" ]; then
 	var=T10_$(echo "$module" | tr '[:lower:]-' '[:upper:]_')
 	IMAGE=$(python3 -I -B scripts/lib.py version "$var")

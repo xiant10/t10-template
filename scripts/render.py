@@ -7,7 +7,8 @@ environment, with nothing pointing back into the checkout, so it runs here or on
 
     compose.sh         docker compose on this bundle; scripts/compose.sh and the host both run it
     foundation/, modules/<id>/, site/
-                       each part's compose/, config/, scripted/, pack/ and init-db.sh, copied
+                       each part's compose/, config/, scripted/, pack/ and init-db.sh, copied;
+                       for a module built from src/, its pack from src/<SRC>/module/
     env/<service>.env  a service's settings: every part's config/<service>.env, then every
                        part's config/<env>/<service>.env, later lines winning
     versions.env       every part's versions.env merged: foundation's pins, each module's, site's overrides
@@ -220,6 +221,10 @@ def main(env_name):
         for name in lib.BUNDLED:
             if (part / name).exists():
                 files.update(files_under(part / name, f"{rel}/{name}"))
+    # A module built from src/ has its pack there; the bundle holds it where every pack is.
+    for folder, pack, _ in lib.modules():
+        if lib.in_project(folder):
+            files.update(files_under(pack, f"{folder.relative_to(lib.ROOT).as_posix()}/pack"))
     for service in lib.services_configured(env_name):
         files[f"env/{service}.env"] = (service_env(service, env_name), 0o644)
     files["versions.env"] = (merged_env(lib.versions_files(), lib.versions()), 0o644)

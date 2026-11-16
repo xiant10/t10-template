@@ -11,7 +11,8 @@ A project made from this template deploys one or more business modules on the t1
 - Production secrets: SOPS with age, with the operator's key and an offline break-glass key. See `plan.md`.
 - A project's root repo can stay local; module repos keep their remotes, since their CI publishes the images.
 - What we learn goes back to the foundation through a tracked list, [`upstream.md`](upstream.md).
-- This repo is a template: nothing outside `modules/` and `site/` names a module or a project.
+- This repo is a template: nothing outside `modules/`, `site/` and `src/` names a module or a project.
+- A module's code lives in the project's `src/` by default, or in a repo of its own when several projects share it (Nov 16).
 
 ## Goals
 
@@ -51,23 +52,28 @@ The layout and who owns each part are in [`guide.md`](guide.md#who-owns-what). I
 
 A project is made by copying the template repo and keeps it as a git remote. Template changes arrive by merging that remote. Because a project edits only `modules/`, `site/` and `README.md`, and overrides the template from `site/` rather than editing it, those merges don't conflict. Submodules or a generator such as copier would add a tool and a second place to look for little gain.
 
-### Why separate repos for modules
+### Where a module's code lives
 
-A module keeps its GitHub remote, because its CI publishes the image every environment pulls. It builds and tests on its own, as every foundation sub project does. The project decides what runs together, at which versions and with which secrets. Keeping them apart means:
+A module's code is either in the project, `src/<service>/`, or in a repo of its own. `make new-module` puts it in the project unless given a `REPO`. Decided Nov 16, revising the Nov 15 choice of separate repos for every module.
 
-- a module release doesn't redeploy anything,
-- one deployment can hold several modules,
-- environments (local, staging, a customer's host) differ only in the project repo.
+**In the project, by default.** Most modules are built for one project, and there a second repo costs more than it gives: a change to a tool, its permission and its deployment was a commit in each repo, and nothing could run until the module's CI had published an image with a pack. With the code in `src/`:
 
-Both are worked on from the project's folder: module repos are cloned into `src/`, which the project ignores. A change that touches both, such as a new permission plus its role in the clients file, is one commit in each, and the project's commit pins the new image.
+- local runs build it from `src/` and read its pack from `src/<service>/module/`, so a change is tried with `make reload`, with no image to publish and nothing to copy,
+- `make test` runs its own tests in Docker, and `make smoke` checks it with the rest of the stack, in the same checkout,
+- one commit holds a change to its code, its permissions and its deployment,
+- servers still run a pinned image: `make release` builds it from `src/` as committed, pushes it and pins it, and `make check` fails on a server whose pin is behind `src/`.
+
+**A repo of its own, for a module several projects share**, such as `t10-property`. Its CI publishes the image every project pulls, it builds and tests on its own as every foundation sub-project does, and each project decides which version runs with which secrets, so a module release redeploys nothing. It's worked on from the project's folder too: `make clone` checks it out into `src/`, kept out of the project's git, and a change that touches both is one commit in each, the project's pinning the new image.
+
+A module can move from one to the other by moving its code and changing `source.env`; its `modules/<id>/` folder is the same apart from `compose/local.yml` and `pack/`.
 
 ## The module pack
 
-Some facts only the module knows: its permissions, its agent, the actions its tools need. Those stay in the module's repo and ship in its image, so the pack always matches the service version.
+Some facts only the module knows: its permissions, its agent, the actions its tools need. Those stay with the module's code and ship in its image, so the pack always matches the service version.
 
-1. The module repo's `module/` holds `module.env`, `agents/<agent>/` and `clients.fragment.json`. Its Dockerfile copies the folder to `/module`, with its permission catalog at `/module/permissions/<id>.yaml`.
-2. `make sync-module MODULE=<id>` copies `/module` out of the pinned image with `docker create` and `docker cp` into `modules/<id>/pack/`. It commits nothing on its own.
-3. `make check` fails if `modules/<id>/pack/` differs from the image pinned as `T10_<ID>`. It skips the check while the pinned image has no pack.
+1. The module's `module/` folder holds `module.env`, `agents/<agent>/`, `clients.fragment.json` and `permissions/<id>.yaml`. Its Dockerfile copies the folder to `/module`.
+2. For a module with its code in the project, that folder is `src/<service>/module/`, and the scripts read it there. There's no copy, so nothing can drift on local; on a server, `make check` makes sure the pinned image was built from the same commit.
+3. For a module in its own repo, `make sync-module MODULE=<id>` copies `/module` out of the pinned image with `docker create` and `docker cp` into `modules/<id>/pack/`. It commits nothing on its own. `make check` fails if `modules/<id>/pack/` differs from the image pinned as `T10_<ID>`, and skips the check while the pinned image has no pack.
 
 `module.env` holds the facts the project's scripts need: `MODULE_ID`, `SERVICE`, `PORT`, `GRANT_ACTIONS`, `GRANT_AUDIENCE`, `SERVICE_ACCOUNTS`, `AGENT`, `AGENT_TITLE`, `AGENT_RUNTIME` and `PUBLIC_URL_SETTING`.
 
@@ -150,9 +156,11 @@ What an environment runs is the same across targets: the merged `env/<service>.e
 - its service, with `AGENT_URL` pointing at `ai-gateway-agent`, read-only with a tmpfs `/tmp`; its `local.yml` publishes it on `127.0.0.1`;
 - a one-shot seed using the `auth-server` image that runs `authctl service-add --if-missing` for its service accounts, after `seed` and before `auth-server` (U2);
 - the few foundation settings only it needs, such as a sign-in setting on auth-server, its agent's client secret on agent-ti, and its pack's agent folder, mounted into `t10-agents` at `/module-agents/<agent>` so it's copied into the agents volume (U4);
-- its database and login, made by its `init-db.sh` beside the foundation's own script.
+- its database and login, made if missing by a one-shot `<id>-db` that runs its `init-db.sh` against Postgres on every start, so a module added to a running stack needs no reset, and setting the password each time makes rotating it a restart.
 
-**Two switches.** `DEV=1` adds each module's `compose/build.yml`, which builds it from `src/<SRC>`, the folder its `source.env` names; module images are the only ones ever built, and the only thing the bundle reads from the checkout. `SCRIPTED=1` adds `foundation/compose/scripted.yml`, which points `ai-gateway-llm` at a scripted model (`foundation/scripted/fake-model.mjs`), so `make up` and `make smoke` work with no `LLM_API_KEY`. A module's own `compose/scripted.yml` names, in `SCRIPTED_TOOL_<ID>`, a tool the scripted model calls, so a turn reaches the module through `ai-gateway-tools`.
+**Building modules.** Module images are the only ones ever built, and their source is the only thing the local bundle reads from the checkout. A module with its code in the project has `build:` in its `compose/local.yml`, so every local `make up` builds it from `src/<SRC>`; servers pull its released image. A module in its own repo is pulled, unless `DEV=1` adds its `compose/build.yml`, which builds it from its checkout in `src/<SRC>`.
+
+**Two switches.** `DEV=1`, above, and `SCRIPTED=1`. `SCRIPTED=1` adds `foundation/compose/scripted.yml`, which points `ai-gateway-llm` at a scripted model (`foundation/scripted/fake-model.mjs`), so `make up` and `make smoke` work with no `LLM_API_KEY`. A module's own `compose/scripted.yml` names, in `SCRIPTED_TOOL_<ID>`, a tool the scripted model calls, so a turn reaches the module through `ai-gateway-tools`.
 
 **Hooks.** `make seed-demo` adds auth-server's sample accounts, then runs each `modules/<id>/hooks/seed-demo.sh`, which typically runs the module's own seed scripts from `src/` through `scripts/compose.sh`. Local only, because the sample password is published. `make smoke` runs each `modules/<id>/hooks/smoke.py` after its generic checks, such as an assistant turn that follows its tool call.
 
@@ -227,9 +235,10 @@ A project is where we learn what a business module needs from the foundation. Th
 | --- | --- |
 | `make check` | Needs no running stack: each module's folder is named for it and its pack matches its pinned image, the environment's secrets are complete, no secret is set among settings, the grants agree, no `TODO` is left on a server, Compose renders, and the bundle mounts nothing from outside itself |
 | `make smoke` | On local, after `make up`: every published service and module answers, the admin signs in, each module answers `/v1/module` and `/v1/access`, the landing page lists each module's app, every routed agent answers by name through `ai-gateway-agent`, then each module's `hooks/smoke.py`. With `SCRIPTED=1`, no identity header reached the model. On a server: every public address answers through Caddy, and auth-server serves its signing key there (U14) |
-| Module CI | In the module's repo: its own tests and image publish |
+| `make test` | Each module with its code in the project: its Dockerfile's `test` stage, so its tests run with the image's toolchain |
+| Module CI | A module in its own repo: its own tests and image publish |
 
-Before reporting a change as done: `make down-all && make up`, then `make seed-demo`, `make check` and `make smoke`.
+Before reporting a change as done: `make verify`, which runs `make test`, `make down-all && make up`, then `make seed-demo`, `make check` and `make smoke`.
 
 ## Alternatives considered
 

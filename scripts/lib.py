@@ -10,7 +10,14 @@ versions.env and init-db.sh. In the order they're layered, later ones winning:
     modules/<id>/    one per business module, with pack/ from the module's image
     site/            this project's own choices: its name, ports, addresses, overrides
 
-Nothing outside modules/ and site/ names a module, so every project shares the rest.
+Nothing outside modules/, site/ and src/ names a module, so every project shares the rest.
+
+A module's code is in one of two places, as its modules/<id>/source.env says:
+
+    in the project   SRC only: its source is src/<SRC>/, committed here. Local runs build it
+                     from there, and its pack is src/<SRC>/module/, read as it is
+    its own repo     SRC and REPO: `make clone` fetches it into src/<SRC>/, which git ignores.
+                     Its pack is modules/<id>/pack/, copied out of its pinned image
 
 Inside each part, config/ and compose/ are layered by environment. The template ships three:
 
@@ -28,7 +35,8 @@ Shell scripts ask it for settings instead:
     scripts/lib.py setting ENV NAME     # one value from the parts' settings.env files
     scripts/lib.py shape ENV            # local, dev or prod: the template environment ENV is built on
     scripts/lib.py version NAME         # one image from the parts' versions.env files
-    scripts/lib.py sources              # each module's src/ folder and repo, one "SRC REPO" per line
+    scripts/lib.py sources              # each module in its own repo: "SRC REPO", one per line
+    scripts/lib.py built [ID]           # each module built from src/: "ID SRC SERVICE", one per line
 """
 import json
 import pathlib
@@ -56,12 +64,30 @@ def read_env(path):
     return out
 
 
+def source(folder):
+    """A module folder's source.env: SRC, and REPO when its code is in a repo of its own."""
+    return read_env(folder / "source.env")
+
+
+def in_project(folder):
+    """Whether a module's code is in this project, src/<SRC>/, rather than a repo of its own."""
+    src = source(folder)
+    return bool(src.get("SRC")) and not src.get("REPO")
+
+
+def pack_of(folder):
+    """Where a module's pack is: src/<SRC>/module/ for one in the project, else the copy from
+    its image in modules/<id>/pack/."""
+    return ROOT / "src" / source(folder)["SRC"] / "module" if in_project(folder) else folder / "pack"
+
+
 def modules():
-    """Each module, as (its folder, its pack folder, the pack's module.env)."""
+    """Each module, as (its folder, its pack folder, the pack's module.env). A folder whose
+    pack has no module.env yet isn't part of the stack."""
     found = []
     for d in sorted(MODULES.iterdir()) if MODULES.exists() else []:
-        if (d / "pack" / "module.env").exists():
-            found.append((d, d / "pack", read_env(d / "pack" / "module.env")))
+        if d.is_dir() and (pack_of(d) / "module.env").exists():
+            found.append((d, pack_of(d), read_env(pack_of(d) / "module.env")))
     return found
 
 
@@ -169,8 +195,21 @@ def versions():
 
 
 def sources():
-    """Each module's source.env: SRC, its folder under src/, and REPO, what `make clone` fetches."""
-    return [read_env(d / "source.env") for d, _, _ in modules() if (d / "source.env").exists()]
+    """Each module in a repo of its own: SRC, its folder under src/, and REPO, what `make clone`
+    fetches. A folder that isn't part of the stack yet counts, so its repo can be cloned first."""
+    folders = sorted(d for d in MODULES.iterdir() if d.is_dir()) if MODULES.exists() else []
+    return [source(d) for d in folders if source(d).get("REPO")]
+
+
+def built(only=None):
+    """Each module built from its source in this project, as (MODULE_ID, SRC, SERVICE); only=ID
+    picks one, and fails if it isn't one."""
+    found = [(m["MODULE_ID"], source(d)["SRC"], m["SERVICE"]) for d, _, m in modules() if in_project(d)]
+    if only:
+        found = [b for b in found if b[0] == only]
+        if not found:
+            sys.exit(f"{only} isn't a module built from src/ (modules/<id>/source.env with SRC and no REPO)")
+    return found
 
 
 def inventory():
@@ -225,6 +264,9 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["sources"]:
         for s in sources():
             print(s["SRC"], s["REPO"])
+    elif sys.argv[1:2] == ["built"] and len(sys.argv) <= 3:
+        for b in built(sys.argv[2] if len(sys.argv) == 3 else None):
+            print(*b)
     elif sys.argv[1:2] == ["setting"] and len(sys.argv) == 4:
         value = settings(sys.argv[2]).get(sys.argv[3])
         sys.exit(f"{sys.argv[3]} is not set for {sys.argv[2]}") if value is None else print(value)

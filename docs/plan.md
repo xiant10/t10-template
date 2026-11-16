@@ -9,7 +9,7 @@ Each phase builds on the one before: the structure every later step lands in, th
 | Step | Change | Status |
 | --- | --- | --- |
 | **A. Structure** | Moves only, nothing behaves differently. Each step checked by diffing the rendered Compose config and a full local run | |
-| A1 | The ownership rule, written in `guide.md`: the root and `foundation/` are the template's, `modules/` and `site/` the project's, `src/` and `generated/` never committed; every part layered the same way | Done Nov 16 |
+| A1 | The ownership rule, written in `guide.md`: the root and `foundation/` are the template's, `modules/` and `site/` the project's, `src/` and `generated/` never committed (`src/` became the project's in B5); every part layered the same way | Done Nov 16 |
 | A2 | Secrets: the values in `site/secrets/<env>.env`, one code path for every environment, `generated/` only ever a copy; `make secrets-init ENV=…` for any environment | Done Nov 16 |
 | A3 | Versions in layers: `foundation/versions.env` (the template's tested set), `modules/<id>/versions.env`, optional `site/versions.env`, merged into the bundle; `modules/<id>/source.env` replaces `repos.txt`; `make pin` writes the file that wins | Done Nov 16 |
 | A4 | `foundation/dev/` renamed `foundation/scripted/`, as `dev` is now an environment; the project's own plan moved to `site/docs/` | Done Nov 16 |
@@ -19,6 +19,7 @@ Each phase builds on the one before: the structure every later step lands in, th
 | B2 | `make new-module ID=…`, which makes the folder, and a written module contract (`module.md`). A scaffolded `property` plus its own additions matched its hand-written folder and passed a full local run. Local runs now add a new module's generated secrets themselves | Done Nov 16 |
 | B3 | The template as its own repo, `xiant10/t10-template`, with no module; a project tracks it as a git remote, `make template-update` merges it keeping `README.md`, `modules/` and `site/` as they are, and `make check` warns when a template file was edited in the project. Tested on a throwaway project: an update, nothing to update, and a conflict on an edited template file | Done Nov 16 |
 | B4 | Foundation components: `foundation/` split into a core and `components/` (`assistant`, `livekit`, `console`, `automations`), which a project picks with `FOUNDATION`; agent-sales removed. Everything on, and the core alone, each pass a full local run | Done Nov 16 |
+| B5 | A module's code in the project: `make new-module` writes a working Go service in `src/<service>/` (contract, verifier, one tool, tests, pack), which local runs build and whose pack is read in place; `make test`, `make reload`, `make verify` and `make release`; a module's database made by a one-shot on every start, so a module joins a running stack; `make up` publishes changed routes; `make smoke` runs a turn with each module's agent. Modules in their own repos work as before. A scaffolded module passed `make verify`, and `make release` was tested against a local registry | Done Nov 16 |
 | **C. Secrets** | Before any server, since a server needs its secrets | |
 | C1 | The inventory says which service gets which secret: `consumers` becomes a map from service to variable to value (such as `DATABASE_URL`), and `render.py` writes each service's secrets as its own file, which Compose reads as a second env file and Kubernetes as that service's Secret. Most `${…}` references leave `foundation/compose/base.yml`. A generator for keys like the signing key (`authctl gen-key`, one-line PEM) | Not started |
 | C2 | SOPS and age: `site/secrets/.sops.yaml`, `make secrets-init ENV=…` and `make secrets-edit ENV=…` on `<env>.enc.env`; decrypted to `site/secrets/<env>.env` only while a command runs, and the bundle's copy deleted from this machine after `make deploy` | Not started |
@@ -34,7 +35,7 @@ Each phase builds on the one before: the structure every later step lands in, th
 | E5 | A cluster, with Postgres in the cluster | Not started |
 | **F. Ongoing** | `upstream.md` items; projects pin their modules once their images have packs | |
 
-Done before the re-plan, Nov 16: the inventory and local secrets, the clients merge, each service's settings merged into `env/<service>.env`, the self-contained bundle in `generated/<env>/`, the template split (`modules/<id>/`, `site/`, `src/`, module hooks, nothing outside `modules/` and `site/` naming a module), and `make check` and a scripted Compose smoke test, run locally since the repo has no CI.
+Done before the re-plan, Nov 16: the inventory and local secrets, the clients merge, each service's settings merged into `env/<service>.env`, the self-contained bundle in `generated/<env>/`, the template split (`modules/<id>/`, `site/`, `src/`, module hooks, nothing outside `modules/`, `site/` and `src/` naming a module), and `make check` and a scripted Compose smoke test, run locally since the repo has no CI.
 
 ## Kubernetes (E)
 

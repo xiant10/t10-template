@@ -4,17 +4,17 @@ How to run and change a project made from this template. Why it's built this way
 
 ## Who owns what
 
-One rule: **the root and `foundation/` belong to the template; `modules/` and `site/` belong to the project; `src/` and `generated/` are never committed.** The project's `README.md` is the one project file at the root.
+One rule: **the root and `foundation/` belong to the template; `modules/`, `site/` and `src/` belong to the project; `generated/` is never committed.** The project's `README.md` is the one project file at the root. `src/` holds each module's code: committed when the code is the project's, and kept out of git when it's a checkout of a module's own repo.
 
 A project is three kinds of part, layered in this order, later ones winning:
 
 | Part | What | Owned by |
 | --- | --- | --- |
 | `foundation/` | The t10 foundation's images as any project runs them: the pins the template is tested with, defaults, and `TODO` where a project must decide | The template |
-| `modules/<id>/` | One business module: its image pin and source repo, Compose files, settings, secrets inventory, and the pack from its image | The project |
+| `modules/<id>/` | One business module's deployment: its image pin and where its code is, Compose files, settings, secrets inventory, and, for a module in its own repo, the pack from its image | The project |
 | `site/` | This project's own choices: `PROJECT_NAME`, ports, public addresses, the deploy host, overrides of any setting or pin, and its secret values | The project |
 
-Everything a part holds is layered the same way, foundation then modules then site: `versions.env`, `secrets.json`, `config/`, `compose/` and `k8s/`. A project changes only `modules/`, `site/` and its `README.md`. Everything else comes from the template and is changed there, so every project gets the change and template updates merge cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. A project follows the template as a git remote named `template`: `make template-update` merges it and keeps the project's own paths as they are, and `make check` warns about any template file edited in the project.
+Everything a part holds is layered the same way, foundation then modules then site: `versions.env`, `secrets.json`, `config/`, `compose/` and `k8s/`. A project changes only `modules/`, `site/`, `src/` and its `README.md`. Everything else comes from the template and is changed there, so every project gets the change and template updates merge cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. A project follows the template as a git remote named `template`: `make template-update` merges it and keeps the project's own paths as they are, and `make check` warns about any template file edited in the project.
 
 ```text
 <project>/
@@ -32,14 +32,14 @@ Everything a part holds is layered the same way, foundation then modules then si
 │   ├── scripted/        the scripted model SCRIPTED=1 runs
 │   └── …                public.json (Caddy's sites), clients.json, agent-routes.json, permissions/,
 │                        secrets.json, init-db.sh
-├── modules/<id>/        one business module                                        project
+├── modules/<id>/        one business module's deployment                           project
 │   ├── versions.env     its image, T10_<ID>
-│   ├── source.env       its repo, which `make clone` fetches into src/
+│   ├── source.env       its folder in src/, and its repo if it has its own
 │   ├── compose/         base.yml: its services and the few foundation settings only it needs;
 │   │                    local.yml: its published port; build.yml: DEV=1; scripted.yml: SCRIPTED=1
 │   ├── config/          <service>.env, settings.env, and a folder per layer: local/, server/, …
 │   ├── k8s/             its Kubernetes component (skeleton until Kubernetes is built)
-│   ├── pack/            its integration pack, copied from its image by `make sync-module`
+│   ├── pack/            own repo only: its pack, copied from its image by `make sync-module`
 │   ├── hooks/           seed-demo.sh and smoke.py, run by `make seed-demo` and `make smoke`
 │   └── …                secrets.json, init-db.sh, README.md, docs/
 ├── site/                this project's choices, applied last                       project
@@ -48,7 +48,8 @@ Everything a part holds is layered the same way, foundation then modules then si
 │   ├── k8s/<env>/       Kubernetes patches for one environment (later)
 │   ├── docs/            the project's own plan and open questions
 │   └── versions.env     optional: a pin this project needs to differ from the template's
-├── src/<repo>/          module source repos, cloned by `make clone`                not committed
+├── src/<service>/       a module's code: its service, tests, Dockerfile and pack    project
+│                        (a module in its own repo: a checkout from `make clone`, not committed)
 └── generated/<env>/     the bundle that runs, rewritten on every run; never an original   not committed
 ```
 
@@ -91,19 +92,23 @@ Each environment says what runs it in `TARGET`: `compose` today, `k8s` once it's
 | `make up` / `down` / `down-all` | Start, stop, or stop and delete data |
 | `make seed-demo` | The foundation's sample accounts, then each module's `hooks/seed-demo.sh` (local only) |
 | `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route, then each module's `hooks/smoke.py` |
-| `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants agree, Compose renders, the bundle mounts nothing from outside itself, and for prod, no `TODO` is left |
+| `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants agree, Compose renders, the bundle mounts nothing from outside itself, and on a server, no `TODO` is left and each module from `src/` is released as committed |
+| `make test` | Each module's own tests from `src/`, in Docker (`MODULE=<id>` for one) |
+| `make reload MODULE=<id>` | After changing a module in `src/`: rebuild and restart it, and what reads its pack if that changed |
+| `make verify` | Everything from empty volumes: `test`, `down-all`, `up`, `seed-demo`, `check`, `smoke` |
+| `make release MODULE=<id>` | Build a module from `src/`, push it to `IMAGE_REGISTRY` and pin it, for servers |
 | `make config-show SVC=auth-server` | A service's settings, and which layer each came from |
 | `make deploy ENV=prod` | Copy the environment's bundle to its host over SSH (rsync, in place), start it there and reload Caddy, after `make check` |
 | `make pin` (`WRITE=1`) | What each foundation image's `latest` is, and optionally pin it in the `versions.env` that wins for it |
 | `make secrets-init` | Add missing secrets to `site/secrets/<env>.env`, keeping existing ones (`ENV=` for a server) |
-| `make new-module ID=<id> SERVICE=… PORT=…` | Write `modules/<id>/` for a new module ([`module.md`](module.md)) |
-| `make template-update` | Merge the template's latest from the `template` git remote, keeping `README.md`, `modules/` and `site/` as they are |
-| `make sync-module MODULE=<id>` | Copy a module's pack out of its pinned image into `modules/<id>/pack/` |
+| `make new-module ID=<id> SERVICE=… PORT=…` | A new module: a working service in `src/<service>/` and its deployment in `modules/<id>/`; with `REPO=`, only the deployment of a module in its own repo ([`module.md`](module.md)) |
+| `make template-update` | Merge the template's latest from the `template` git remote, keeping `README.md`, `modules/`, `site/` and `src/` as they are |
+| `make sync-module MODULE=<id>` | For a module in its own repo: copy its pack out of its pinned image into `modules/<id>/pack/` |
 | `make routes-publish` | Publish the route document again after an agent changes |
 | `make rotate NAME=…` | How to rotate one secret |
-| `make clone` / `make status` | Clone each module's repo (its `source.env`) into `src/`; show this repo's and their changes |
+| `make clone` / `make status` | Clone each module that has its own repo into `src/`; show this repo's and their changes |
 
-`ENV=` picks the environment (default `local`). `DEV=1` builds modules from `src/` instead of pulling them, and `SCRIPTED=1` uses a scripted model so nothing needs `LLM_API_KEY`. Both are local only. On a server, `make smoke` checks only what Caddy publishes.
+`ENV=` picks the environment (default `local`). On local, a module whose code is in the project is always built from `src/`; `DEV=1` builds the ones in their own repos from their checkouts too, instead of pulling them. `SCRIPTED=1` uses a scripted model so nothing needs `LLM_API_KEY`. Both are local only. On a server, `make smoke` checks only what Caddy publishes.
 
 ## Changing a setting
 
@@ -125,4 +130,4 @@ Compose never runs from the checkout. Every command first renders `generated/<en
 
 ## Adding a module
 
-`make new-module ID=<id> SERVICE=<service> PORT=<port> REPO=<url>` writes `modules/<id>/` with every name taken from the ID. It joins the stack once `make sync-module MODULE=<id>` copies the pack out of its image; then fill in each `TODO`. What the image must ship, what its service must answer and what each file in the folder is for is the contract in [`module.md`](module.md).
+`make new-module ID=<id> SERVICE=<service> PORT=<port>` writes a working module with every name taken from the ID: its code in `src/<service>/` and its deployment in `modules/<id>/`. It runs with the next `make up`. With `REPO=<url>`, it writes only `modules/<id>/`, for a module whose code is in its own repo; that joins the stack once `make sync-module MODULE=<id>` copies the pack out of its image. What the image must ship, what its service must answer, what each file is for and how to work on one is the contract in [`module.md`](module.md).

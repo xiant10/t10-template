@@ -14,9 +14,9 @@ The whole walk-through, from cloning to a first deploy, is [`docs/new-project.md
    cd myproject && git remote add origin <your project's repo>
    ```
    Set `PROJECT_NAME` and pick the foundation components in `site/config/settings.env`, and replace this README with your project's.
-2. Add each module: `make new-module ID=<id> SERVICE=<service> PORT=<port> REPO=<url>`, then follow [`docs/module.md`](docs/module.md).
+2. Add each module: `make new-module ID=<id> SERVICE=<service> PORT=<port>` writes a working service in `src/<service>/` to build on, and `make test`, `make up` and `make smoke` check it. [`docs/module.md`](docs/module.md) is the contract.
 3. Note your project's plan and open questions in `site/docs/plan.md`.
-4. Later, `make template-update` merges the template's changes. Your `README.md`, `modules/` and `site/` stay as they are; everything else comes from the template, so change it there, not in the project. `make check` warns about any template file edited in the project.
+4. Later, `make template-update` merges the template's changes. Your `README.md`, `modules/`, `site/` and `src/` stay as they are; everything else comes from the template, so change it there, not in the project. `make check` warns about any template file edited in the project.
 
 ## Run it
 
@@ -44,4 +44,4 @@ The ports are 38xxx and 37xxx, so this runs beside t10-quickstart. Override them
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE). A project made from the template keeps the template's files under it; its own `modules/` and `site/` are licensed as the project chooses.
+Licensed under the [Apache License, Version 2.0](LICENSE). A project made from the template keeps the template's files under it; its own `modules/`, `site/` and `src/` are licensed as the project chooses. Code `make new-module` writes into `src/` comes from the template's `scripts/scaffold/`, under the same license, and its `verifier/` from auth-server, also Apache 2.0.
