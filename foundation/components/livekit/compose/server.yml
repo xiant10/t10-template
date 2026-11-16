@@ -1,4 +1,4 @@
-# The voice component on a server: LiveKit for real.
+# The livekit component on a server: LiveKit for real.
 
 services:
   livekit-server:

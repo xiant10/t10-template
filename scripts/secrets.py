@@ -53,7 +53,7 @@ def init(env):
         lines.append(f"{s['name']}={value}")
     off = lib.secrets_off()
     for k in sorted(set(have) - {s["name"] for s in INVENTORY}):
-        lines.append(f"# {k} belongs to a component in FOUNDATION_OFF" if k in off else f"# {k} is not in the secrets inventory")
+        lines.append(f"# {k} belongs to a component this project doesn't run (FOUNDATION)" if k in off else f"# {k} is not in the secrets inventory")
         lines.append(f"{k}={have[k]}")
     path.write_text("\n".join(lines) + "\n")
     path.chmod(0o600)

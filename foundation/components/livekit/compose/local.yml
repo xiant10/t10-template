@@ -1,4 +1,4 @@
-# The voice component on one machine: LiveKit published on 127.0.0.1, in dev mode.
+# The livekit component on one machine: LiveKit published on 127.0.0.1, in dev mode.
 
 services:
   livekit-server:

@@ -5,8 +5,8 @@ versions.env and init-db.sh. In the order they're layered, later ones winning:
 
     foundation/      the t10 foundation's core, which every project runs (from the template)
     foundation/components/<name>/
-                     the foundation's optional pieces, such as voice or the console: every one,
-                     except those site/config/settings.env names in FOUNDATION_OFF
+                     the foundation's optional pieces, such as LiveKit or the console: those named
+                     in FOUNDATION, the project's list or else the template's
     modules/<id>/    one per business module, with pack/ from the module's image
     site/            this project's own choices: its name, ports, addresses, overrides
 
@@ -66,21 +66,23 @@ def modules():
 
 
 def components(off=False):
-    """The foundation's optional components this project runs: each folder in foundation/components/,
-    except those FOUNDATION_OFF names in site/config/settings.env. With off=True, those instead.
-    A component's component.env can name others it needs in REQUIRES."""
+    """The foundation's optional components this project runs, from foundation/components/: those
+    FOUNDATION names in site/config/settings.env, or else in foundation/config/settings.env, the
+    template's list. With off=True, the ones it leaves out. A component's component.env can name
+    others it needs in REQUIRES."""
     have = sorted(d for d in COMPONENTS.iterdir() if d.is_dir()) if COMPONENTS.exists() else []
-    names = read_env(SITE / "config" / "settings.env").get("FOUNDATION_OFF", "")
-    dropped = {n.strip() for n in names.split(",") if n.strip()}
-    unknown = dropped - {d.name for d in have}
+    chosen = read_env(SITE / "config" / "settings.env").get("FOUNDATION")
+    if chosen is None:
+        chosen = read_env(FOUNDATION / "config" / "settings.env").get("FOUNDATION", "")
+    on = {n.strip() for n in chosen.split(",") if n.strip()}
+    unknown = on - {d.name for d in have}
     if unknown:
-        sys.exit(f"FOUNDATION_OFF names {', '.join(sorted(unknown))}: the components are {', '.join(d.name for d in have)}")
+        sys.exit(f"FOUNDATION names {', '.join(sorted(unknown))}: the components are {', '.join(d.name for d in have)}")
     for d in have:
         needs = [n for n in read_env(d / "component.env").get("REQUIRES", "").split(",") if n]
-        if d.name not in dropped and dropped.intersection(needs):
-            sys.exit(f"the {d.name} component needs {', '.join(sorted(dropped.intersection(needs)))}: "
-                     f"add {d.name} to FOUNDATION_OFF too, or keep it")
-    return [d for d in have if (d.name in dropped) == off]
+        if d.name in on and not on.issuperset(needs):
+            sys.exit(f"the {d.name} component needs {', '.join(sorted(set(needs) - on))}: add it to FOUNDATION, or drop {d.name}")
+    return [d for d in have if (d.name in on) != off]
 
 
 def runtimes_off():

@@ -23,7 +23,7 @@ Everything a part holds is layered the same way, foundation then modules then si
 ├── docs/                how the template works: guide, design, module, plan, upstream  template
 ├── foundation/          the foundation's images, defaults only                    template
 │   ├── versions.env     the foundation and third-party pins, tested together
-│   ├── components/      optional pieces a project can switch off: assistant, voice, console, automations
+│   ├── components/      optional pieces a project picks in FOUNDATION: assistant, livekit, console, automations
 │   ├── compose/         base.yml: every foundation service; local.yml: published ports;
 │   │                    server.yml: Caddy and LiveKit on a server; scripted.yml: SCRIPTED=1
 │   ├── config/          <service>.env for every environment, local/ and server/ for some, <service>/ for files
@@ -65,7 +65,7 @@ Every command copies the environment's values into the bundle as `generated/<env
 
 ### Foundation components
 
-`foundation/` is a core every project runs, and components in `foundation/components/` that a project can switch off: `assistant` (agent-pi), `voice` (LiveKit, which needs `assistant`), `console` and `automations`. List the ones to leave out in `site/config/settings.env`, such as `FOUNDATION_OFF=voice,console`; each one's services, settings, secrets, images, addresses, clients and routes drop out with it. What each holds is in [`foundation/components/README.md`](../foundation/components/README.md).
+`foundation/` is a core every project runs, and components in `foundation/components/`: `assistant` (agent-pi), `livekit` (LiveKit and the voice worker, which needs `assistant`), `console` and `automations`. `FOUNDATION` lists the ones that run: the template's list in `foundation/config/settings.env` has all four, and a project sets its own in `site/config/settings.env`, such as `FOUNDATION=assistant,livekit`. A component left out takes its services, settings, secrets, addresses, clients and routes with it. What each holds is in [`foundation/components/README.md`](../foundation/components/README.md).
 
 ## Environments
 

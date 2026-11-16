@@ -4,9 +4,9 @@
 # clients reach harnesses through ai-gateway-agent, harnesses reach models through
 # ai-gateway-llm and tools through ai-gateway-tools. Run it through `make up`.
 #
-# This is the core every project runs. The optional pieces, such as voice and the console, are
+# This is the core every project runs. The optional pieces, such as LiveKit and the console, are
 # components in foundation/components/<name>/, each adding its own services over this file; a
-# project switches one off with FOUNDATION_OFF in site/config/settings.env.
+# project picks the ones it runs with FOUNDATION in site/config/settings.env.
 # Nothing here names a module or a project: modules/<id>/compose/ and site/ add those.
 # Nothing here differs by environment either: compose/local.yml publishes ports on this
 # machine, and compose/server.yml puts Caddy in front on a server.
@@ -95,12 +95,12 @@ services:
       AUTH_WORKBENCH_URL: ${WORKBENCH_PUBLIC_URL}
       DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable
       AUTH_TOTP_KEY: ${AUTH_TOTP_KEY}
-      # LiveKit, for voice: browsers connect to this, so the published address. The voice
-      # component sets these; auth-server requires them even without it, so with voice off
+      # LiveKit, for calls: browsers connect to this, so the published address. The livekit
+      # component sets these; auth-server requires them even without it, so with it off
       # they're placeholders that nothing reaches (upstream U15).
       LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://livekit.invalid}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-voice-off}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-voice-off}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-livekit-off}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-livekit-off}
       AUTH_SIGNING_KEY_CURRENT: ${AUTH_SIGNING_KEY_CURRENT:-}
       AUTH_SIGNING_KEY_NEXT: ${AUTH_SIGNING_KEY_NEXT:-}
     volumes:

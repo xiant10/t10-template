@@ -6,12 +6,12 @@ project never edits it. Modules add to it from `../modules/<id>/`, and a project
 settings from `../site/`, which is also where every `TODO` in `config/server/` gets its value.
 
 It's a **core**, which every project runs, and **components** in `components/<name>/`, optional
-pieces a project can switch off (`components/README.md`). Each component is shaped like this
+pieces a project picks with `FOUNDATION` (`components/README.md`). Each component is shaped like this
 folder and layered right after it.
 
 | Path | Holds |
 | --- | --- |
-| `components/` | The optional pieces: `assistant` (agent-pi), `voice` (LiveKit), `console`, `automations` |
+| `components/` | The optional pieces: `assistant` (agent-pi), `livekit` (LiveKit and the voice worker), `console`, `automations` |
 | `compose/base.yml` | The core's services, images only. Wiring in `environment:`, settings in `config/`. Nothing that differs by environment |
 | `compose/local.yml` | `local`: every core service published on 127.0.0.1 |
 | `compose/server.yml` | `dev` and `prod`: Caddy in front with TLS (its sites from each part's `public.json` and each module); nothing else published |

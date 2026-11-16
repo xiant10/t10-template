@@ -28,14 +28,16 @@ secrets-init: ## Add missing secrets to site/secrets/<env>.env, keeping existing
 render: ## Write the bundle in generated/<env>/ that up and deploy run; every command does this first
 	@$(PY) scripts/render.py $(ENV)
 
+# --remove-orphans: containers of a service no longer in the stack, such as a component left out
+# of FOUNDATION, go too.
 up: ## Start the stack and wait until it's healthy
-	@$(COMPOSE) up -d --wait --wait-timeout 300 $(if $(DEV),--build)
+	@$(COMPOSE) up -d --wait --wait-timeout 300 --remove-orphans $(if $(DEV),--build)
 
 down: ## Stop the stack and keep its data (down-all also deletes the data)
-	@$(COMPOSE) down
+	@$(COMPOSE) down --remove-orphans
 
 down-all:
-	@$(COMPOSE) down -v
+	@$(COMPOSE) down -v --remove-orphans
 
 ps: ## Show containers
 	@$(COMPOSE) ps -a

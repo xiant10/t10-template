@@ -1,4 +1,4 @@
-# The voice component: LiveKit, and t10-livekit-agent, which speaks for agent-pi (so it needs
+# The livekit component: LiveKit, and t10-livekit-agent, which speaks for agent-pi (so it needs
 # the assistant component). Over foundation/compose/base.yml.
 
 # YAML anchors don't reach across files, so these repeat foundation/compose/base.yml's.

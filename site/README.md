@@ -6,7 +6,7 @@ outside `site/` and `modules/` comes from the template and is never edited here.
 
 | Path | What it holds |
 |------|---------------|
-| `config/settings.env` | `PROJECT_NAME`, `FOUNDATION_OFF` (foundation components this project doesn't run), and any setting for every environment |
+| `config/settings.env` | `PROJECT_NAME`, `FOUNDATION` (the foundation components this project runs), and any setting for every environment |
 | `config/<env>/settings.env` | One environment: its public addresses, `DEPLOY_HOST`, `DEPLOY_DIR` and `LIVEKIT_NODE_IP` on a server, or ports on local. An environment other than local, dev and prod (such as `uat`) also sets `SHAPE` here |
 | `config/<service>.env`, `config/<env>/<service>.env` | A foundation or module service's settings, over the defaults in `foundation/config/` or `modules/<id>/config/` |
 | `secrets/` | The secret values, one file per environment, and the only place they're read from (`secrets/README.md`) |
