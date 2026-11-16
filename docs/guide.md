@@ -1,6 +1,6 @@
 # Working in a project
 
-How to run and change a project made from this template. Why it's built this way is in [`design.md`](design.md).
+How to run and change a project made from this template. Why it's built this way is in [`design.md`](design.md); starting a new project is [`new-project.md`](new-project.md).
 
 ## Who owns what
 

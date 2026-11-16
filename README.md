@@ -2,9 +2,11 @@
 
 A starting point for a project that runs business modules on the t10 foundation, using only the foundation's published images. A project made from it adds its modules in `modules/` and its own choices in `site/`; everything else comes from the template, so template updates merge cleanly.
 
-How to work in it is in [`docs/guide.md`](docs/guide.md), why it's laid out this way in [`docs/design.md`](docs/design.md), what a module provides in [`docs/module.md`](docs/module.md), what's left to build in [`docs/plan.md`](docs/plan.md), and what the foundation should take back in [`docs/upstream.md`](docs/upstream.md).
+How to start a project from it is in [`docs/new-project.md`](docs/new-project.md), how to work in it in [`docs/guide.md`](docs/guide.md), why it's laid out this way in [`docs/design.md`](docs/design.md), what a module provides in [`docs/module.md`](docs/module.md), what's left to build in [`docs/plan.md`](docs/plan.md), and what the foundation should take back in [`docs/upstream.md`](docs/upstream.md).
 
 ## Start a project
+
+The whole walk-through, from cloning to a first deploy, is [`docs/new-project.md`](docs/new-project.md). In short:
 
 1. Clone it with the template as a remote named `template`, and give the project its own `origin`:
    ```sh
