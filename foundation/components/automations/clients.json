@@ -1,0 +1,25 @@
+{
+  "_comment": "Added to foundation/clients.json when this component is on, as a module's clients.fragment.json is.",
+  "runtimes": [
+    {
+      "name": "t10-automations",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "work:send",
+        "knowledge:read"
+      ],
+      "audiences": [
+        "ai-gateway",
+        "agent-pi",
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm"
+      ]
+    }
+  ]
+}

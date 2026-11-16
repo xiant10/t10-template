@@ -71,7 +71,7 @@ for folder, pack, m in lib.modules():
     check(f"{folder.name}: its agent's own grant holds them and the audience",
           want <= set(grants["actions"].split(",")) and audience in grants["audiences"].split(","), str(grants))
     fragment = json.loads((pack / "clients.fragment.json").read_text())
-    names = fragment["runtime_grants"]["runtimes"] + [r["name"] for r in fragment["runtimes"]]
+    names = [n for n in fragment["runtime_grants"]["runtimes"] if n not in lib.runtimes_off()] + [r["name"] for r in fragment["runtimes"]]
     bad = [n for n in names if n not in runtimes or not want <= set(runtimes[n]["actions"]) or audience not in runtimes[n]["audiences"]]
     check(f"{folder.name}: every runtime that runs its tools holds its grant in clients.yaml", not bad, f"missing in {bad}")
 

@@ -1,0 +1,32 @@
+{
+  "_comment": "Added to foundation/agent-routes.json when this component is on: agent-pi's pool, its agent, and the picker's default.",
+  "pools": {
+    "assistant": {
+      "state": "active",
+      "audience": "agent-pi",
+      "capabilities": [
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "durable_runs"
+      ],
+      "replicas": {
+        "agent-pi-0": "http://agent-pi:9800"
+      }
+    }
+  },
+  "agents": {
+    "assistant": {
+      "title": "Assistant",
+      "open": true,
+      "routes": [
+        {
+          "pool": "assistant"
+        }
+      ]
+    }
+  },
+  "default_agent": "assistant"
+}

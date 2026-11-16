@@ -12,11 +12,14 @@ environment, with nothing pointing back into the checkout, so it runs here or on
                        part's config/<env>/<service>.env, later lines winning
     versions.env       every part's versions.env merged: foundation's pins, each module's, site's overrides
     secrets.env        the environment's secrets, mode 600, copied from site/secrets/<env>.env
-    clients.yaml       auth-server's clients: foundation/clients.json plus each pack's
-                       clients.fragment.json, with ${VAR}, "${sha256:VAR}" and "${bool:VAR}" filled in
+    clients.yaml       auth-server's clients: foundation/clients.json, each component's clients.json
+                       and each pack's clients.fragment.json, with ${VAR}, "${sha256:VAR}" and
+                       "${bool:VAR}" filled in
     permissions/       every catalog auth-server loads: foundation/permissions/ and each pack's
-    agent-routes.json  foundation/agent-routes.json plus a pool and an agent for each module's agent
-    modules.env        MODULE_* variables, appended to the foundation's lists in foundation/compose/base.yml
+    agent-routes.json  foundation/agent-routes.json, each component's, and a pool and an agent for
+                       each module's agent
+    modules.env        MODULE_* variables, appended to the foundation's lists in foundation/compose/base.yml:
+                       what each component's component.env adds, then each module's
     Caddyfile          on a server (dev, prod): one site per public address, from each part's
                        public.json and each module's PUBLIC_URL_SETTING, proxied to its service
 
@@ -77,7 +80,10 @@ def merge_clients(base, fragment, source):
     grants = fragment.get("runtime_grants")
     if grants:
         by_name = {r["name"]: r for r in base["runtimes"]}
+        off = lib.runtimes_off()
         for name in grants["runtimes"]:
+            if name in off:
+                continue
             if name not in by_name:
                 raise SystemExit(f"{source}: runtime_grants names {name!r}, which isn't a runtime")
             for field in ("actions", "audiences"):
@@ -228,6 +234,17 @@ def main(env_name):
     routes = json.loads((lib.FOUNDATION / "agent-routes.json").read_text())
     lists = {k: [] for k in ("GRANT_ACTIONS", "GRANT_AUDIENCES", "TOOL_SERVERS", "TOOL_MODULE_SERVERS",
                              "WORKBENCH_URLS", "APP_URLS")}
+    for comp in lib.components():
+        if (comp / "clients.json").exists():
+            clients = merge_clients(clients, json.loads((comp / "clients.json").read_text()), comp / "clients.json")
+        if (comp / "agent-routes.json").exists():
+            extra = json.loads((comp / "agent-routes.json").read_text())
+            for key in ("pools", "agents"):
+                routes[key].update(extra.get(key, {}))
+            routes["default_agent"] = extra.get("default_agent", routes["default_agent"])
+        for key, value in lib.read_env(comp / "component.env").items():
+            if key in lists:
+                lists[key] += value.split(",")
     for _, pack, m in lib.modules():
         mid, service, port, audience = m["MODULE_ID"], m["SERVICE"], m["PORT"], m["GRANT_AUDIENCE"]
         lists["GRANT_ACTIONS"] += m["GRANT_ACTIONS"].split(",")

@@ -1,0 +1,6 @@
+# The assistant component on one machine: published on 127.0.0.1.
+
+services:
+  agent-pi:
+    ports:
+      - "127.0.0.1:${AGENT_PI_PORT}:9800"

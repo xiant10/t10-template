@@ -1,0 +1,17 @@
+{
+  "_comment": "Added to foundation/clients.json when this component is on, as a module's clients.fragment.json is.",
+  "clients": [
+    {
+      "id": "t10-console",
+      "name": "Platform console",
+      "type": "confidential",
+      "tenant": "none",
+      "redirect_uris": [
+        "${CONSOLE_PUBLIC_URL}/auth/callback"
+      ],
+      "secret_sha256": "${sha256:CONSOLE_CLIENT_SECRET}",
+      "idle_ttl": "1h",
+      "absolute_ttl": "12h"
+    }
+  ]
+}

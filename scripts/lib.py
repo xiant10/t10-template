@@ -3,7 +3,10 @@
 A project is made of parts, laid out alike, each with any of compose/, config/, secrets.json,
 versions.env and init-db.sh. In the order they're layered, later ones winning:
 
-    foundation/      the t10 foundation's images as any project runs them (from the template)
+    foundation/      the t10 foundation's core, which every project runs (from the template)
+    foundation/components/<name>/
+                     the foundation's optional pieces, such as voice or the console: every one,
+                     except those site/config/settings.env names in FOUNDATION_OFF
     modules/<id>/    one per business module, with pack/ from the module's image
     site/            this project's own choices: its name, ports, addresses, overrides
 
@@ -33,6 +36,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FOUNDATION = ROOT / "foundation"
+COMPONENTS = FOUNDATION / "components"
 MODULES = ROOT / "modules"
 SITE = ROOT / "site"
 GENERATED = ROOT / "generated"
@@ -61,9 +65,38 @@ def modules():
     return found
 
 
+def components(off=False):
+    """The foundation's optional components this project runs: each folder in foundation/components/,
+    except those FOUNDATION_OFF names in site/config/settings.env. With off=True, those instead.
+    A component's component.env can name others it needs in REQUIRES."""
+    have = sorted(d for d in COMPONENTS.iterdir() if d.is_dir()) if COMPONENTS.exists() else []
+    names = read_env(SITE / "config" / "settings.env").get("FOUNDATION_OFF", "")
+    dropped = {n.strip() for n in names.split(",") if n.strip()}
+    unknown = dropped - {d.name for d in have}
+    if unknown:
+        sys.exit(f"FOUNDATION_OFF names {', '.join(sorted(unknown))}: the components are {', '.join(d.name for d in have)}")
+    for d in have:
+        needs = [n for n in read_env(d / "component.env").get("REQUIRES", "").split(",") if n]
+        if d.name not in dropped and dropped.intersection(needs):
+            sys.exit(f"the {d.name} component needs {', '.join(sorted(dropped.intersection(needs)))}: "
+                     f"add {d.name} to FOUNDATION_OFF too, or keep it")
+    return [d for d in have if (d.name in dropped) == off]
+
+
+def runtimes_off():
+    """The auth-server runtimes of the components this project doesn't run, so a module's grant
+    for one of them is left out instead of failing."""
+    names = set()
+    for d in components(off=True):
+        if (d / "clients.json").exists():
+            names |= {r["name"] for r in json.loads((d / "clients.json").read_text()).get("runtimes", [])}
+    return names
+
+
 def parts():
-    """foundation/, each module's folder, then site/, as Compose and settings layer them."""
-    return [FOUNDATION] + [d for d, _, _ in modules()] + ([SITE] if SITE.exists() else [])
+    """foundation/, its components that are on, each module's folder, then site/, as Compose and
+    settings layer them."""
+    return [FOUNDATION] + components() + [d for d, _, _ in modules()] + ([SITE] if SITE.exists() else [])
 
 
 SHAPES = ("local", "dev", "prod")
@@ -146,6 +179,13 @@ def inventory():
         if f.exists():
             out += json.loads(f.read_text())["secrets"]
     return out
+
+
+def secrets_off():
+    """The secrets of the components this project doesn't run. Their values may stay in
+    site/secrets/, unused, so switching a component back on keeps them."""
+    return {s["name"] for d in components(off=True) if (d / "secrets.json").exists()
+            for s in json.loads((d / "secrets.json").read_text())["secrets"]}
 
 
 def compose_files(*names):

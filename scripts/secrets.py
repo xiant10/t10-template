@@ -51,8 +51,9 @@ def init(env):
             value = generate(s["generate"])
             added += 1
         lines.append(f"{s['name']}={value}")
+    off = lib.secrets_off()
     for k in sorted(set(have) - {s["name"] for s in INVENTORY}):
-        lines.append(f"# {k} is not in the secrets inventory")
+        lines.append(f"# {k} belongs to a component in FOUNDATION_OFF" if k in off else f"# {k} is not in the secrets inventory")
         lines.append(f"{k}={have[k]}")
     path.write_text("\n".join(lines) + "\n")
     path.chmod(0o600)
@@ -69,7 +70,10 @@ def check(env, allow_empty=()):
             continue
         if not have.get(s["name"]) and not s.get("optional") and s["name"] not in allow_empty:
             problems.append(f"{s['name']} is not set")
+    off = lib.secrets_off()
     for k, v in have.items():
+        if k in off:
+            continue
         if k not in BY_NAME:
             problems.append(f"{k} is not in the secrets inventory")
         elif lib.shape(env) == "prod" and any(m in v for m in DEV_MARKERS):

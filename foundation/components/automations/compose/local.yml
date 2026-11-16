@@ -1,0 +1,6 @@
+# The automations component on one machine: published on 127.0.0.1.
+
+services:
+  t10-automations:
+    ports:
+      - "127.0.0.1:${AUTOMATIONS_PORT}:18030"

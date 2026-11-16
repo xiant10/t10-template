@@ -1,0 +1,10 @@
+# The voice component on a server: LiveKit for real.
+
+services:
+  livekit-server:
+    # Media goes straight to the host, not through Caddy, so its ports are published as is and
+    # it advertises the host's public IP.
+    command: --bind 0.0.0.0 --node-ip=${LIVEKIT_NODE_IP}
+    ports:
+      - "${LIVEKIT_RTC_TCP_PORT}:${LIVEKIT_RTC_TCP_PORT}"
+      - "${LIVEKIT_RTC_UDP_PORT}:${LIVEKIT_RTC_UDP_PORT}/udp"

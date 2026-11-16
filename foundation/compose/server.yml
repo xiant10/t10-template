@@ -1,5 +1,4 @@
-# Every server environment (dev, prod), over compose/base.yml: Caddy in front with TLS, and
-# LiveKit for real. Nothing else is published: people reach services only through Caddy.
+# Every server environment (dev, prod), over compose/base.yml: Caddy in front with TLS. Nothing else is published: people reach services only through Caddy.
 
 services:
   # Its sites are generated/<env>/Caddyfile, written by scripts/render.py from each part's public
@@ -21,14 +20,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
-
-  livekit-server:
-    # Media goes straight to the host, not through Caddy, so its ports are published as is and
-    # it advertises the host's public IP.
-    command: --bind 0.0.0.0 --node-ip=${LIVEKIT_NODE_IP}
-    ports:
-      - "${LIVEKIT_RTC_TCP_PORT}:${LIVEKIT_RTC_TCP_PORT}"
-      - "${LIVEKIT_RTC_UDP_PORT}:${LIVEKIT_RTC_UDP_PORT}/udp"
 
 volumes:
   caddy-data:

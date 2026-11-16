@@ -1,0 +1,4 @@
+{
+  "_comment": "The console's public address, as foundation/public.json.",
+  "CONSOLE_PUBLIC_URL": "t10-console:8086"
+}

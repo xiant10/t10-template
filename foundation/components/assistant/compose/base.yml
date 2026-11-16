@@ -1,0 +1,49 @@
+# The assistant component: agent-pi, the foundation's general assistant, and the default agent
+# in the picker. Over foundation/compose/base.yml.
+
+# YAML anchors don't reach across files, so these repeat foundation/compose/base.yml's.
+x-healthcheck: &health
+  interval: 5s
+  timeout: 3s
+  retries: 12
+x-harness: &harness
+  JWT_JWKS_URL: http://auth-server:8081/.well-known/jwks.json
+  JWT_ISSUER: ${AUTH_PUBLIC_URL}
+  AUTH_URL: http://auth-server:8081
+  LLM_BASE_URL: http://ai-gateway-llm:18080/v1
+  LLM_API_KEY: ${GATEWAY_API_KEY}
+  AGENT_CONTROL_URL: http://t10-agent-control:8085
+  TOOL_GATEWAY_URL: http://ai-gateway-tools:18095
+  COLLAB_MCP_URL: http://ai-gateway-tools:18095/mcp/collab
+  KNOWLEDGE_MCP_URL: http://ai-gateway-tools:18095/mcp/knowledge
+
+services:
+  agent-pi:
+    image: ${T10_AGENT_PI}
+    restart: unless-stopped
+    env_file: ./env/agent-pi.env
+    environment:
+      <<: *harness
+      AUTH_CLIENT_SECRET: ${AGENT_PI_SECRET}
+      MODULES_MCP_URL: http://ai-gateway-tools:18095/mcp/modules
+      GRANT_ACTIONS: agent:use,work:read,work:write,knowledge:read${MODULE_GRANT_ACTIONS:+,${MODULE_GRANT_ACTIONS}}
+      GRANT_AUDIENCES: agent-pi,t10-collab,t10-knowledge,ai-gateway-tools,ai-gateway-llm${MODULE_GRANT_AUDIENCES:+,${MODULE_GRANT_AUDIENCES}}
+    volumes:
+      - agent-pi-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9800/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      <<: *health
+    depends_on:
+      ai-gateway-llm: {condition: service_healthy}
+      ai-gateway-tools: {condition: service_healthy}
+
+  ai-gateway-agent:
+    depends_on:
+      agent-pi: {condition: service_healthy}
+
+  seed:
+    environment:
+      AGENT_PI_SECRET: ${AGENT_PI_SECRET}
+
+volumes:
+  agent-pi-data:

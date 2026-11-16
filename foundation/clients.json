@@ -29,79 +29,9 @@
       "secret_sha256": "${sha256:WORKBENCH_CLIENT_SECRET}",
       "idle_ttl": "12h",
       "absolute_ttl": "168h"
-    },
-    {
-      "id": "t10-console",
-      "name": "Platform console",
-      "type": "confidential",
-      "tenant": "none",
-      "redirect_uris": [
-        "${CONSOLE_PUBLIC_URL}/auth/callback"
-      ],
-      "secret_sha256": "${sha256:CONSOLE_CLIENT_SECRET}",
-      "idle_ttl": "1h",
-      "absolute_ttl": "12h"
     }
   ],
   "runtimes": [
-    {
-      "name": "t10-livekit-agent",
-      "optional": true,
-      "voice": true,
-      "actions": [
-        "agent:use",
-        "work:read",
-        "work:write",
-        "knowledge:read"
-      ],
-      "audiences": [
-        "agent-pi",
-        "agent-sales",
-        "agent-ti",
-        "t10-collab",
-        "t10-knowledge",
-        "ai-gateway-tools",
-        "ai-gateway-llm"
-      ]
-    },
-    {
-      "name": "agent-pi",
-      "optional": true,
-      "actions": [
-        "agent:use",
-        "work:read",
-        "work:write",
-        "knowledge:read"
-      ],
-      "audiences": [
-        "agent-pi",
-        "t10-collab",
-        "t10-knowledge",
-        "ai-gateway-tools",
-        "ai-gateway-llm"
-      ],
-      "tool_audience": "ai-gateway-tools",
-      "model_audience": "ai-gateway-llm"
-    },
-    {
-      "name": "agent-sales",
-      "optional": true,
-      "actions": [
-        "agent:use",
-        "work:read",
-        "work:write",
-        "knowledge:read"
-      ],
-      "audiences": [
-        "agent-sales",
-        "t10-collab",
-        "t10-knowledge",
-        "ai-gateway-tools",
-        "ai-gateway-llm"
-      ],
-      "tool_audience": "ai-gateway-tools",
-      "model_audience": "ai-gateway-llm"
-    },
     {
       "name": "agent-ti",
       "optional": true,
@@ -121,27 +51,6 @@
       ],
       "tool_audience": "ai-gateway-tools",
       "model_audience": "ai-gateway-llm"
-    },
-    {
-      "name": "t10-automations",
-      "optional": true,
-      "actions": [
-        "agent:use",
-        "work:read",
-        "work:write",
-        "work:send",
-        "knowledge:read"
-      ],
-      "audiences": [
-        "ai-gateway",
-        "agent-pi",
-        "agent-sales",
-        "agent-ti",
-        "t10-collab",
-        "t10-knowledge",
-        "ai-gateway-tools",
-        "ai-gateway-llm"
-      ]
     }
   ],
   "exchangers": [

@@ -1,0 +1,10 @@
+# The voice component on one machine: LiveKit published on 127.0.0.1, in dev mode.
+
+services:
+  livekit-server:
+    # The advertised RTC ports must be the published ones, since browsers connect to them.
+    command: --dev --bind 0.0.0.0 --node-ip=127.0.0.1
+    ports:
+      - "127.0.0.1:${LIVEKIT_PORT}:7880"
+      - "127.0.0.1:${LIVEKIT_RTC_TCP_PORT}:${LIVEKIT_RTC_TCP_PORT}"
+      - "127.0.0.1:${LIVEKIT_RTC_UDP_PORT}:${LIVEKIT_RTC_UDP_PORT}/udp"

@@ -1,0 +1,34 @@
+# The console component: t10-console, the platform console. Over foundation/compose/base.yml.
+
+# YAML anchors don't reach across files, so these repeat foundation/compose/base.yml's.
+x-healthcheck: &health
+  interval: 5s
+  timeout: 3s
+  retries: 12
+x-auth: &auth
+  AUTH_ISSUER: ${AUTH_PUBLIC_URL}
+  AUTH_URL: http://auth-server:8081
+
+services:
+  t10-console:
+    image: ${T10_CONSOLE}
+    restart: unless-stopped
+    env_file: ./env/t10-console.env
+    environment:
+      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/console?sslmode=disable
+      <<: *auth
+      CONSOLE_PUBLIC_URL: ${CONSOLE_PUBLIC_URL}
+      AUTH_CLIENT_SECRET: ${CONSOLE_CLIENT_SECRET}
+      CONSOLE_SESSION_KEY: ${CONSOLE_SESSION_KEY}
+      AGENT_CONTROL_URL: http://t10-agent-control:8085
+      GATEWAY_AUDIT_URL: http://ai-gateway-llm:18080
+      GATEWAY_AUDIT_KEY: ${AUDIT_CONSOLE_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8086/readyz"]
+      <<: *health
+    depends_on:
+      t10-agent-control: {condition: service_healthy}
+
+  auth-server:
+    environment:
+      AUTH_CONSOLE_URL: ${CONSOLE_PUBLIC_URL}

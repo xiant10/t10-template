@@ -1,0 +1,6 @@
+# The console component on one machine: published on 127.0.0.1.
+
+services:
+  t10-console:
+    ports:
+      - "127.0.0.1:${CONSOLE_PORT}:8086"

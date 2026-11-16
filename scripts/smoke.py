@@ -85,16 +85,17 @@ def tool_calls(session, wait=30):
 
 
 # 1. Health.
+# Only what runs: a component that's off has no port or public address among the settings.
 if LOCAL:
     up = [(name.removesuffix("_PORT").lower(), port(name) + path) for name, path in [
         ("AUTH_PORT", "/readyz"), ("WORKBENCH_PORT", "/readyz"), ("CONSOLE_PORT", "/readyz"),
         ("AGENT_CONTROL_PORT", "/readyz"), ("AUTOMATIONS_PORT", "/readyz"), ("COLLAB_PORT", "/readyz"),
-        ("KNOWLEDGE_PORT", "/readyz"), ("AGENT_PI_PORT", "/readyz"), ("AGENT_SALES_PORT", "/readyz"),
+        ("KNOWLEDGE_PORT", "/readyz"), ("AGENT_PI_PORT", "/readyz"),
         ("AGENT_TI_PORT", "/readyz"), ("LLM_GATEWAY_PORT", "/health"), ("AGENT_GATEWAY_PORT", "/health"),
-        ("TOOLS_GATEWAY_PORT", "/health")]]
+        ("TOOLS_GATEWAY_PORT", "/health")] if name in cfg]
 else:
     up = [(name.removesuffix("_PUBLIC_URL").lower(), public(name) + "/readyz")
-          for name in ("AUTH_PUBLIC_URL", "WORKBENCH_PUBLIC_URL", "CONSOLE_PUBLIC_URL")]
+          for name in ("AUTH_PUBLIC_URL", "WORKBENCH_PUBLIC_URL", "CONSOLE_PUBLIC_URL") if name in cfg]
 up += [(m["MODULE_ID"], url + "/readyz") for m, url, _ in MODULES]
 for name, url in up:
     try:

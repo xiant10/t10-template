@@ -1,0 +1,40 @@
+# The automations component: t10-automations, scheduled and triggered agent work, with its
+# workbench page and collab's link to it. Over foundation/compose/base.yml.
+
+# YAML anchors don't reach across files, so these repeat foundation/compose/base.yml's.
+x-healthcheck: &health
+  interval: 5s
+  timeout: 3s
+  retries: 12
+x-auth: &auth
+  AUTH_ISSUER: ${AUTH_PUBLIC_URL}
+  AUTH_URL: http://auth-server:8081
+
+services:
+  t10-automations:
+    image: ${T10_AUTOMATIONS}
+    restart: unless-stopped
+    env_file: ./env/t10-automations.env
+    environment:
+      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/automations?sslmode=disable
+      <<: *auth
+      AUTH_CLIENT_SECRET: ${T10_AUTOMATIONS_SECRET}
+      AGENT_URL: http://ai-gateway-agent:18090/agent
+      AGENT_CONTROL_URL: http://t10-agent-control:8085
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:18030/readyz"]
+      <<: *health
+    depends_on:
+      t10-agent-control: {condition: service_healthy}
+
+  seed:
+    environment:
+      T10_AUTOMATIONS_SECRET: ${T10_AUTOMATIONS_SECRET}
+
+  t10-collab:
+    environment:
+      AUTOMATIONS_URL: http://t10-automations:18030
+
+  workbench:
+    depends_on:
+      t10-automations: {condition: service_healthy}

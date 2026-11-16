@@ -1,0 +1,4 @@
+{
+  "_comment": "LiveKit's public address, as foundation/public.json.",
+  "LIVEKIT_PUBLIC_URL": "livekit-server:7880"
+}

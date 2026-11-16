@@ -23,6 +23,7 @@ Everything a part holds is layered the same way, foundation then modules then si
 ├── docs/                how the template works: guide, design, module, plan, upstream  template
 ├── foundation/          the foundation's images, defaults only                    template
 │   ├── versions.env     the foundation and third-party pins, tested together
+│   ├── components/      optional pieces a project can switch off: assistant, voice, console, automations
 │   ├── compose/         base.yml: every foundation service; local.yml: published ports;
 │   │                    server.yml: Caddy and LiveKit on a server; scripted.yml: SCRIPTED=1
 │   ├── config/          <service>.env for every environment, local/ and server/ for some, <service>/ for files
@@ -61,6 +62,10 @@ Which secrets exist is the inventory, each part's `secrets.json`: name, consumer
 | `site/secrets/<env>.enc.env` | The same, encrypted with SOPS and age (planned) | Yes |
 
 Every command copies the environment's values into the bundle as `generated/<env>/secrets.env` (mode 600), which `make deploy` copies to the host. `generated/` is derived only: deleting it loses nothing.
+
+### Foundation components
+
+`foundation/` is a core every project runs, and components in `foundation/components/` that a project can switch off: `assistant` (agent-pi), `voice` (LiveKit, which needs `assistant`), `console` and `automations`. List the ones to leave out in `site/config/settings.env`, such as `FOUNDATION_OFF=voice,console`; each one's services, settings, secrets, images, addresses, clients and routes drop out with it. What each holds is in [`foundation/components/README.md`](../foundation/components/README.md).
 
 ## Environments
 
