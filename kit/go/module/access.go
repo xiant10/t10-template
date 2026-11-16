@@ -1,16 +1,19 @@
-package main
+package module
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"time"
 
-	"__service__/verifier"
+	"t10kit/verifier"
 )
 
 var (
@@ -24,11 +27,11 @@ var (
 type Caller struct {
 	TenantID, UserID string
 	TenantAdmin      bool
-	// Permissions are this module's permissions the person holds, such as __id__:admin.
+	// Permissions are this module's permissions the person holds, such as crm:admin.
 	Permissions []string
 }
 
-// Access checks who a request is for. Auth is the real one; tests use their own.
+// Access checks who a request is for. Auth is the real one; tests use Fake.
 type Access interface {
 	Ready(ctx context.Context) error
 	// Person accepts only a person's own token, from a browser or app.
@@ -40,9 +43,24 @@ type Access interface {
 // Auth checks tokens offline with the verifier, then reads the person's standing from
 // auth-server on every request, so a removed member loses access at once.
 type Auth struct {
-	URL, Secret string
-	HTTP        *http.Client
-	Verifier    *verifier.Verifier
+	// Module is the MODULE_ID, whose permissions Caller holds; Service is its auth-server account.
+	Module, Service string
+	URL, Secret     string
+	HTTP            *http.Client
+	Verifier        *verifier.Verifier
+}
+
+// NewAuth is Auth for the module's service, from the settings the project's standard wiring
+// gives every module: AUTH_ISSUER, AUTH_URL and AUTH_CLIENT_SECRET.
+func NewAuth(module, service string) (*Auth, error) {
+	issuer, secret := os.Getenv("AUTH_ISSUER"), os.Getenv("AUTH_CLIENT_SECRET")
+	authURL := cmp.Or(os.Getenv("AUTH_URL"), issuer)
+	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	v, err := verifier.New(verifier.Config{Issuer: issuer, URL: authURL, Service: service, ClientSecret: secret, HTTPClient: client})
+	if err != nil {
+		return nil, err
+	}
+	return &Auth{Module: module, Service: service, URL: authURL, Secret: secret, HTTP: client, Verifier: v}, nil
 }
 
 func bearer(header string) (string, bool) {
@@ -94,7 +112,7 @@ func (a *Auth) Agent(ctx context.Context, header, action string) (Caller, error)
 	if who.UserID == "" || who.TenantID == "" || who.Agent == nil || !who.Allows(action) {
 		return Caller{}, ErrForbidden
 	}
-	// This module defines no grant constraints, so a grant that sets one is refused rather
+	// A module defines no grant constraints, so a grant that sets one is refused rather
 	// than ignored.
 	for _, raw := range who.Constraints() {
 		if c := string(bytes.TrimSpace(raw)); c != "" && c != "null" && c != "{}" {
@@ -138,11 +156,11 @@ func (a *Auth) entitled(ctx context.Context, tenant, user string) (Caller, error
 			} `json:"grants"`
 		} `json:"users"`
 	}
-	q := url.Values{"tenant": {tenant}, "user": {user}, "module": {moduleID}}
+	q := url.Values{"tenant": {tenant}, "user": {user}, "module": {a.Module}}
 	if err := a.request(ctx, "GET", "/v1/entitlements?"+q.Encode(), token, nil, &e); err != nil {
 		return Caller{}, ErrUnavailable
 	}
-	if e.Tenant != tenant || e.Module != moduleID || len(e.Users) != 1 || e.Users[0].ID != user {
+	if e.Tenant != tenant || e.Module != a.Module || len(e.Users) != 1 || e.Users[0].ID != user {
 		return Caller{}, ErrUnavailable
 	}
 	u := e.Users[0]
@@ -151,7 +169,7 @@ func (a *Auth) entitled(ctx context.Context, tenant, user string) (Caller, error
 	}
 	c := Caller{TenantID: tenant, UserID: user, TenantAdmin: u.Admin, Permissions: []string{}}
 	for _, g := range u.Grants {
-		if strings.HasPrefix(g.Permission, moduleID+":") {
+		if strings.HasPrefix(g.Permission, a.Module+":") {
 			c.Permissions = append(c.Permissions, g.Permission)
 		}
 	}
@@ -162,7 +180,7 @@ func (a *Auth) serviceToken(ctx context.Context) (string, error) {
 	var out struct {
 		Token string `json:"access_token"`
 	}
-	body := map[string]string{"grant_type": "client_credentials", "client_id": service, "client_secret": a.Secret}
+	body := map[string]string{"grant_type": "client_credentials", "client_id": a.Service, "client_secret": a.Secret}
 	if err := a.request(ctx, "POST", "/v1/token", "", body, &out); err != nil || out.Token == "" {
 		return "", ErrUnavailable
 	}

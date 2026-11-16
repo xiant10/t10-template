@@ -1,6 +1,7 @@
-// __service__ is the __id__ module's service. It answers what a project expects of every
-// module (docs/module.md in the project): /readyz, /v1/module, /v1/access and its tools at
-// /mcp. Its settings come from the project: modules/__id__/config/ and compose/base.yml.
+// __service__ is the __id__ module's service. What every module answers (/readyz, /v1/module,
+// /v1/access and its tools at /mcp) comes from the template's kit (t10kit/module, kit/go/ in
+// the project); this module adds its tools (tools.go) and its web app (server.go). Its settings
+// come from the project: the standard ones every module gets, and modules/__id__/config/.
 package main
 
 import (
@@ -13,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"__service__/verifier"
+	"t10kit/module"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -34,19 +35,14 @@ func main() {
 	}
 	defer pool.Close()
 
-	issuer, secret := os.Getenv("AUTH_ISSUER"), os.Getenv("AUTH_CLIENT_SECRET")
-	authURL := cmp.Or(os.Getenv("AUTH_URL"), issuer)
-	client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	v, err := verifier.New(verifier.Config{Issuer: issuer, URL: authURL, Service: service, ClientSecret: secret, HTTPClient: client})
+	auth, err := module.NewAuth(moduleID, service)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	s := &Server{
-		Access:    &Auth{URL: authURL, Secret: secret, HTTP: client, Verifier: v},
-		Ping:      pool.Ping,
-		PublicURL: os.Getenv("__ID___PUBLIC_URL"),
-	}
+	s := &Server{Module: module.Module{
+		ID: moduleID, Service: service, Label: "__Id__", PublicURL: os.Getenv("__ID___PUBLIC_URL"),
+		Access: auth, Ping: pool.Ping, Tools: tools(),
+	}}
 	srv := &http.Server{Addr: cmp.Or(os.Getenv("LISTEN_ADDR"), ":__port__"), Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()

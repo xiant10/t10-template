@@ -6,8 +6,8 @@
 2. The environment's secrets are complete, and no prod value is a dev default.
 3. No secret's name is set in any part's config/.
 4. Grants agree, as the foundation's check-module-agents.py requires: the actions in each
-   catalog's agent block are in its module.env, in its agent's own grant, and in every
-   runtime clients.yaml gives its tools to.
+   catalog's agent block reached the harnesses, its agent's own grant, and every runtime
+   clients.yaml gives its tools to. render.py puts them there; this catches a pack it can't.
 5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
    module built from src/ needs `make release` first.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
@@ -61,19 +61,26 @@ settings_files = [p for part in lib.parts() for p in (part / "config").rglob("*.
 leaks = [f"{p.relative_to(lib.ROOT)}: {k}" for p in settings_files for k in lib.read_env(p) if k in names]
 check("no secret is set among settings", not leaks, "; ".join(leaks))
 
-# 4. Grants.
-clients_file = lib.GENERATED / ENV / "clients.yaml"
+# 4. Grants. A module says what its agent tools need once, in its catalog's agent block, and
+# render.py gives it out; this checks that it reached every place in the bundle.
+bundle = lib.GENERATED / ENV
+clients_file = bundle / "clients.yaml"
 runtimes = {r["name"]: r for r in json.loads(clients_file.read_text().split("\n", 1)[1])["runtimes"]} if clients_file.exists() else {}
+module_lists = lib.read_env(bundle / "modules.env")
 for folder, pack, m in lib.modules():
-    catalog = json.loads((pack / "permissions" / f"{m['MODULE_ID']}.yaml").read_text())
-    want, audience = set(catalog["agent"]["actions"]), catalog["agent"]["audience"]
-    check(f"{folder.name}: module.env grants what the catalog's agent block needs",
-          want <= set(m["GRANT_ACTIONS"].split(",")), f"{sorted(want)} vs {m['GRANT_ACTIONS']}")
-    grants = json.loads((pack / "agents" / m["AGENT"] / "agent.json").read_text())["grants"]
-    check(f"{folder.name}: its agent's own grant holds them and the audience",
-          want <= set(grants["actions"].split(",")) and audience in grants["audiences"].split(","), str(grants))
+    actions, audience = lib.grant(pack, m)
+    want = set(actions)
+    check(f"{folder.name}: the harnesses hold what its tools need",
+          want <= set(module_lists.get("MODULE_GRANT_ACTIONS", "").split(","))
+          and audience in module_lists.get("MODULE_GRANT_AUDIENCES", "").split(","), f"{sorted(want)}, {audience}")
+    if m.get("AGENT"):
+        agent = bundle / folder.relative_to(lib.ROOT) / "pack" / "agents" / m["AGENT"] / "agent.json"
+        grants = json.loads(agent.read_text()).get("grants", {})
+        check(f"{folder.name}: its agent's own grant holds them and the audience",
+              want <= set(grants.get("actions", "").split(",")) and audience in grants.get("audiences", "").split(","), str(grants))
     fragment = json.loads((pack / "clients.fragment.json").read_text())
-    names = [n for n in fragment["runtime_grants"]["runtimes"] if n not in lib.runtimes_off()] + [r["name"] for r in fragment["runtimes"]]
+    names = [n for n in fragment.get("runtime_grants", {}).get("runtimes", []) if n not in lib.runtimes_off()]
+    names += [r["name"] for r in fragment.get("runtimes", [])]
     bad = [n for n in names if n not in runtimes or not want <= set(runtimes[n]["actions"]) or audience not in runtimes[n]["audiences"]]
     check(f"{folder.name}: every runtime that runs its tools holds its grant in clients.yaml", not bad, f"missing in {bad}")
 

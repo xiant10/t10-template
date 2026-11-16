@@ -8,7 +8,11 @@ environment, with nothing pointing back into the checkout, so it runs here or on
     compose.sh         docker compose on this bundle; scripts/compose.sh and the host both run it
     foundation/, modules/<id>/, site/
                        each part's compose/, config/, scripted/, pack/ and init-db.sh, copied;
-                       for a module built from src/, its pack from src/<SRC>/module/
+                       for a module built from src/, its pack from src/<SRC>/module/, and its
+                       agent.json given what its tools need (below)
+    modules/<id>/standard/<name>.yml
+                       each module's standard wiring for base, local and build, from its
+                       module.env (scripts/wiring.py), read just before its own compose/<name>.yml
     env/<service>.env  a service's settings: every part's config/<service>.env, then every
                        part's config/<env>/<service>.env, later lines winning
     versions.env       every part's versions.env merged: foundation's pins, each module's, site's overrides
@@ -16,6 +20,10 @@ environment, with nothing pointing back into the checkout, so it runs here or on
     clients.yaml       auth-server's clients: foundation/clients.json, each component's clients.json
                        and each pack's clients.fragment.json, with ${VAR}, "${sha256:VAR}" and
                        "${bool:VAR}" filled in
+
+A module says what its agent tools need once, in its catalog's agent block (lib.grant). Every
+place that needs it gets it from there: the harnesses' MODULE_GRANT_* lists, its own runtimes
+and the foundation runtimes its runtime_grants names in clients.yaml, and its agent's grants.
     permissions/       every catalog auth-server loads: foundation/permissions/ and each pack's
     agent-routes.json  foundation/agent-routes.json, each component's, and a pool and an agent for
                        each module's agent
@@ -29,7 +37,7 @@ bind mounts. Anything else in the folder is removed, so it holds exactly what's 
 
 Addresses in modules.env are Compose service names; Kubernetes will have its own.
 upstream U3: clients.yaml merging goes away once auth-server reads one file per module.
-upstream U7: the MODULE_* lists would come from the catalogs' agent blocks.
+upstream U7: the foundation would read the catalogs' agent blocks itself.
 """
 import hashlib
 import json
@@ -41,6 +49,7 @@ import urllib.parse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib  # noqa: E402
+import wiring  # noqa: E402
 
 WHOLE = re.compile(r"^\$\{(sha256|bool):([A-Z0-9_]+)\}$")
 INLINE = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -94,6 +103,20 @@ def merge_clients(base, fragment, source):
     return base
 
 
+def add_grant(holder, actions, audience, joined=False):
+    """Adds actions and audience to holder's "actions" and "audiences", lists or, with joined,
+    comma-separated strings. Whether anything was added."""
+    added = False
+    for field, want in (("actions", actions), ("audiences", [audience])):
+        have = holder.get(field, "" if joined else [])
+        have = [v for v in have.split(",") if v] if joined else list(have)
+        new = [v for v in want if v not in have]
+        if new:
+            holder[field] = ",".join(have + new) if joined else have + new
+            added = True
+    return added
+
+
 def add_route(doc, m):
     """A module's agent as a pool of its own on agent-ti's replicas, so ai-gateway-agent routes
     it by name. Not a `hosts` entry under ti: t10-agent-control's router never places a hosted
@@ -143,11 +166,24 @@ def mirror(files, dest):
                 p.rmdir()
 
 
-def compose_script(env_name):
+def compose_files(names, standard):
+    """The Compose files for these names, name by name and part by part, each module's standard
+    file (scripts/wiring.py) just before its own, so its own can change anything in it."""
+    out = []
+    for name in names:
+        for part in lib.parts():
+            if (part, name) in standard:
+                out.append(standard[part, name])
+            if (part / "compose" / f"{name}.yml").exists():
+                out.append((part / "compose" / f"{name}.yml").relative_to(lib.ROOT).as_posix())
+    return out
+
+
+def compose_script(env_name, standard):
     """generated/<env>/compose.sh. The bundle has the repo's layout, so paths are the same."""
     rel = lambda p: str(p.relative_to(lib.ROOT))
     env_files = ["versions.env", *map(rel, lib.settings_files(env_name)), "secrets.env", "modules.env"]
-    files = " ".join(f"-f {rel(f)}" for f in lib.compose_files("base", *lib.layers(env_name)))
+    files = " ".join(f"-f {f}" for f in compose_files(["base", *lib.layers(env_name)], standard))
     lines = ["#!/bin/sh", f"# Written by scripts/render.py for ENV={env_name}. Don't edit.",
              "# docker compose on this bundle: each part's Compose files and settings, the pinned versions,",
              "# the secrets, and what modules add. Runs here, or on the host `make deploy` copies it to.",
@@ -155,7 +191,7 @@ def compose_script(env_name):
              f'files="{files}"']
     if lib.shape(env_name) == "local":
         for var, name in (("DEV", "build"), ("SCRIPTED", "scripted")):
-            lines += [f'[ -z "${{{var}:-}}" ] || files="$files -f {rel(f)}"' for f in lib.compose_files(name)]
+            lines += [f'[ -z "${{{var}:-}}" ] || files="$files -f {f}"' for f in compose_files([name], standard)]
     else:
         lines.append('[ -z "${DEV:-}${SCRIPTED:-}" ] || { echo "DEV and SCRIPTED are for local only" >&2; exit 1; }')
     lines += ["# shellcheck disable=SC2086",
@@ -230,7 +266,22 @@ def main(env_name):
     files["versions.env"] = (merged_env(lib.versions_files(), lib.versions()), 0o644)
     if secrets.exists():
         files["secrets.env"] = (secrets.read_bytes(), 0o600)
-    files["compose.sh"] = (compose_script(env_name).encode(), 0o755)
+
+    # Each module's standard wiring, worked out from its module.env (scripts/wiring.py).
+    standard = {}
+    names = ["base", *lib.layers(env_name)] + (["build"] if lib.shape(env_name) == "local" else [])
+    for folder, _, m in lib.modules():
+        rel = folder.relative_to(lib.ROOT).as_posix()
+        src = lib.source(folder).get("SRC")
+        for name in names:
+            doc = wiring.compose(m, name, lib.in_project(folder), src, f"env/{m['SERVICE']}.env" in files)
+            if doc:
+                path = f"{rel}/standard/{name}.yml"
+                header = (f"# {m['MODULE_ID']}'s standard {name} wiring, written by scripts/render.py from its module.env\n"
+                          f"# (scripts/wiring.py). Don't edit: {rel}/compose/{name}.yml can change anything here.\n")
+                files[path] = ((header + wiring.to_yaml(doc) + "\n").encode(), 0o644)
+                standard[folder, name] = path
+    files["compose.sh"] = (compose_script(env_name, standard).encode(), 0o755)
 
     perms = files_under(lib.FOUNDATION / "permissions") if (lib.FOUNDATION / "permissions").exists() else {}
     perms = {k: v for k, v in perms.items() if k.endswith(".yaml")}
@@ -250,9 +301,10 @@ def main(env_name):
         for key, value in lib.read_env(comp / "component.env").items():
             if key in lists:
                 lists[key] += value.split(",")
-    for _, pack, m in lib.modules():
-        mid, service, port, audience = m["MODULE_ID"], m["SERVICE"], m["PORT"], m["GRANT_AUDIENCE"]
-        lists["GRANT_ACTIONS"] += m["GRANT_ACTIONS"].split(",")
+    for folder, pack, m in lib.modules():
+        mid, service, port = m["MODULE_ID"], m["SERVICE"], m["PORT"]
+        actions, audience = lib.grant(pack, m)
+        lists["GRANT_ACTIONS"] += actions
         lists["GRANT_AUDIENCES"].append(audience)
         lists["TOOL_SERVERS"].append(f"{mid}={audience}@http://{service}:{port}/mcp")
         lists["TOOL_MODULE_SERVERS"].append(mid)
@@ -260,13 +312,23 @@ def main(env_name):
         lists["APP_URLS"].append(f"{mid}={settings[m['PUBLIC_URL_SETTING']]}")
         if m.get("AGENT"):
             add_route(routes, m)
+            # The agent's own grant gets what its tools need, in the bundle's copy of its agent.json.
+            path = f"{folder.relative_to(lib.ROOT).as_posix()}/pack/agents/{m['AGENT']}/agent.json"
+            agent = json.loads(files[path][0])
+            if "grants" in agent and add_grant(agent["grants"], actions, audience, joined=True):
+                files[path] = ((json.dumps(agent, indent=2, ensure_ascii=False) + "\n").encode(), files[path][1])
         for f in sorted((pack / "permissions").glob("*.yaml")):
             if f.name in perms:
                 raise SystemExit(f"{f.name} is in two catalogs")
             perms[f.name] = (f.read_bytes(), 0o644)
         fragment = pack / "clients.fragment.json"
         if fragment.exists():
-            clients = merge_clients(clients, json.loads(fragment.read_text()), fragment)
+            # Every runtime that runs its tools gets what they need: its own runtimes, and the
+            # foundation's it names in runtime_grants.
+            extra = json.loads(fragment.read_text())
+            for runtime in extra.get("runtimes", []) + ([extra["runtime_grants"]] if "runtime_grants" in extra else []):
+                add_grant(runtime, actions, audience)
+            clients = merge_clients(clients, extra, fragment)
 
     files.update({f"permissions/{k}": v for k, v in perms.items()})
     clients = fill(clients, values, "clients")

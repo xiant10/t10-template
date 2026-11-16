@@ -11,7 +11,7 @@ if [ -z "$list" ]; then
 	echo "no module is built from src/ yet: make new-module"
 	exit 0
 fi
-echo "$list" | while read -r id src service; do
+echo "$list" | while read -r id src _; do
 	echo "== $id: src/$src"
-	docker build --target test "src/$src"
+	docker build --target test --build-context kit=kit/go "src/$src"
 done

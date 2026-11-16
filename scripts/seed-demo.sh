@@ -12,7 +12,8 @@ cd "$(dirname "$0")/.."
 port() { python3 -I -B scripts/lib.py setting local "$1"; }
 
 scripts/compose.sh exec -T auth-server authctl samples-add
-export T10_COMPOSE="$PWD/scripts/compose.sh" T10_PG_USER=t10 AUTH_URL="http://127.0.0.1:$(port AUTH_PORT)"
+AUTH_URL="http://127.0.0.1:$(port AUTH_PORT)"
+export T10_COMPOSE="$PWD/scripts/compose.sh" T10_PG_USER=t10 AUTH_URL
 for hook in modules/*/hooks/seed-demo.sh; do
 	[ -f "$hook" ] || continue
 	echo "$hook"

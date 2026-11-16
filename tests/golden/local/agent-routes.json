@@ -1,0 +1,94 @@
+{
+  "revision": 1,
+  "pools": {
+    "ti": {
+      "agent": "ti",
+      "state": "active",
+      "harness": "ti",
+      "audience": "agent-ti",
+      "capabilities": [
+        "durable_runs",
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "tenant_config"
+      ],
+      "replicas": {
+        "agent-ti-0": "http://agent-ti:18120/agents/ti"
+      },
+      "tools_via_gateway": true
+    },
+    "assistant": {
+      "state": "active",
+      "audience": "agent-pi",
+      "capabilities": [
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "durable_runs"
+      ],
+      "replicas": {
+        "agent-pi-0": "http://agent-pi:9800"
+      }
+    },
+    "crm": {
+      "agent": "crm",
+      "state": "active",
+      "harness": "ti",
+      "audience": "agent-ti-crm",
+      "capabilities": [
+        "durable_runs",
+        "steer",
+        "interrupt",
+        "voice",
+        "retry",
+        "background_tasks",
+        "tenant_config"
+      ],
+      "replicas": {
+        "agent-ti-0": "http://agent-ti:18120/agents/crm"
+      },
+      "tools_via_gateway": true
+    }
+  },
+  "agents": {
+    "ti": {
+      "title": "Ti Assistant",
+      "routes": [
+        {
+          "pool": "ti"
+        }
+      ],
+      "tenant_agents": {
+        "customize": true,
+        "models": [
+          "chat"
+        ]
+      },
+      "open": true
+    },
+    "assistant": {
+      "title": "Assistant",
+      "open": true,
+      "routes": [
+        {
+          "pool": "assistant"
+        }
+      ]
+    },
+    "crm": {
+      "title": "Crm",
+      "open": true,
+      "routes": [
+        {
+          "pool": "crm"
+        }
+      ]
+    }
+  },
+  "default_agent": "assistant"
+}

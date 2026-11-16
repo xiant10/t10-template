@@ -1,0 +1,274 @@
+"""The template's own tests: its scripts, run on throwaway copies of this checkout, with no stack.
+
+    make test-template              # these, and the Go kit's tests
+    UPDATE_GOLDEN=1 make test-template   # rewrite tests/golden/ after a deliberate change, then review its diff
+
+Each test copies the checkout's files (as git sees them, without generated/ or secrets) into a
+temporary folder and runs the scripts there, as a project would. The golden files are the
+bundle's module wiring for one scaffolded module: a change to them is a change every project
+gets, so it should show in review. Compose is checked only where Docker is installed.
+"""
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+GOLDEN = ROOT / "tests" / "golden"
+DOCKER = shutil.which("docker") is not None
+PY = [sys.executable, "-I", "-B"]
+
+
+def tracked_files():
+    out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                         cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    return [f for f in out.split("\0") if f and not f.startswith(("generated/", "src/", "modules/")) and (ROOT / f).is_file()]
+
+
+class Project:
+    """A throwaway project made from this checkout."""
+
+    def __init__(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp(prefix="t10-template-test-")).resolve()
+        for f in tracked_files():
+            dest = self.dir / f
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / f, dest)
+        for f in (self.dir / "site" / "secrets").glob("*.env"):
+            f.unlink()
+
+    def run(self, *cmd, check=True, **env):
+        r = subprocess.run(cmd, cwd=self.dir, capture_output=True, text=True,
+                           env={**os.environ, "ENV": "local", "SCRIPTED": "", "DEV": "", **env})
+        if check and r.returncode != 0:
+            raise AssertionError(f"{' '.join(cmd)} failed:\n{r.stdout}\n{r.stderr}")
+        return r
+
+    def script(self, name, *args, **env):
+        return self.run(*PY, f"scripts/{name}", *args, **env)
+
+    def new_module(self, *args):
+        return self.script("new-module.py", *args)
+
+    def secrets(self, env="local"):
+        """Every secret set, to a value named after it, so rendered files don't change between runs."""
+        self.script("secrets.py", "init", env)
+        path = self.dir / "site" / "secrets" / f"{env}.env"
+        lines = [line if line.startswith("#") or "=" not in line else f"{line.split('=')[0]}=S_{line.split('=')[0]}"
+                 for line in path.read_text().splitlines()]
+        path.write_text("\n".join(lines) + "\n")
+
+    def render(self, env="local"):
+        self.secrets(env)
+        self.script("render.py", env)
+        return self.dir / "generated" / env
+
+    def read(self, rel):
+        return (self.dir / rel).read_text()
+
+    def write(self, rel, text):
+        (self.dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (self.dir / rel).write_text(text)
+
+    def compose_config(self, env="local", **extra):
+        r = self.run("scripts/compose.sh", "config", "--format", "json", ENV=env, **extra)
+        return json.loads(r.stdout)
+
+    def close(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
+class TestCase(unittest.TestCase):
+    def setUp(self):
+        self.p = Project()
+        self.addCleanup(self.p.close)
+
+
+class FoundationOnly(TestCase):
+    def test_renders_every_environment(self):
+        for env in ("local", "dev", "prod"):
+            bundle = self.p.render(env)
+            self.assertTrue((bundle / "compose.sh").exists(), env)
+            self.assertIn("MODULE_TOOL_MODULE_SERVERS=\n", (bundle / "modules.env").read_text())
+        self.assertTrue((self.p.dir / "generated" / "prod" / "Caddyfile").exists())
+
+    def test_core_alone(self):
+        self.p.write("site/config/settings.env", "PROJECT_NAME=test\nFOUNDATION=\n")
+        bundle = self.p.render()
+        self.assertNotIn("agent-pi", (bundle / "clients.yaml").read_text())
+
+    def test_unknown_component_is_refused(self):
+        self.p.write("site/config/settings.env", "PROJECT_NAME=test\nFOUNDATION=nothing\n")
+        r = self.p.run(*PY, "scripts/render.py", "local", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("FOUNDATION names nothing", r.stderr)
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_compose_renders(self):
+        self.p.secrets()
+        self.assertIn("auth-server", self.p.compose_config()["services"])
+
+
+class NewModule(TestCase):
+    def test_writes_only_what_is_particular_to_it(self):
+        self.p.new_module("crm")
+        files = sorted(str(f.relative_to(self.p.dir / "modules" / "crm")) for f in (self.p.dir / "modules" / "crm").rglob("*") if f.is_file())
+        self.assertEqual(files, ["README.md", "compose/scripted.yml", "config/local/settings.env", "config/server/settings.env",
+                                 "config/t10-crm.env", "source.env", "versions.env"])
+        self.assertEqual(self.p.read("modules/crm/source.env").split("SRC=")[1].strip(), "crm")
+        self.assertIn("PORT=18100", self.p.read("src/crm/module/module.env"))
+        self.assertNotIn("__", self.p.read("src/crm/main.go"))
+
+    def test_next_module_gets_the_next_port(self):
+        self.p.new_module("crm")
+        self.p.new_module("shop")
+        self.assertIn("PORT=18101", self.p.read("src/shop/module/module.env"))
+        self.assertIn("SHOP_PORT=38101", self.p.read("modules/shop/config/local/settings.env"))
+
+    def test_refuses_bad_or_existing(self):
+        r = self.p.run(*PY, "scripts/new-module.py", "Bad_ID", check=False)
+        self.assertIn("an ID is lowercase", r.stderr)
+        self.p.new_module("crm")
+        r = self.p.run(*PY, "scripts/new-module.py", "crm", check=False)
+        self.assertIn("already exists", r.stderr)
+
+    def test_own_repo_waits_for_its_pack(self):
+        self.p.new_module("crm", "t10-crm", "18076", "https://example.com/t10-crm.git")
+        self.assertIn("REPO=https://example.com/t10-crm.git", self.p.read("modules/crm/source.env"))
+        self.assertFalse((self.p.dir / "src" / "crm").exists())
+        bundle = self.p.render()
+        self.assertNotIn("crm", (bundle / "modules.env").read_text())
+
+
+class StandardWiring(TestCase):
+    def setUp(self):
+        super().setUp()
+        self.p.new_module("crm")
+
+    def test_golden(self):
+        """The bundle's wiring for one module. UPDATE_GOLDEN=1 rewrites it."""
+        bundle = self.p.render()
+        names = ["modules/crm/standard/base.yml", "modules/crm/standard/local.yml", "modules.env",
+                 "agent-routes.json", "clients.yaml", "modules/crm/pack/agents/crm/agent.json"]
+        for name in names:
+            got = (bundle / name).read_text()
+            golden = GOLDEN / "local" / name
+            if os.environ.get("UPDATE_GOLDEN"):
+                golden.parent.mkdir(parents=True, exist_ok=True)
+                golden.write_text(got)
+            with self.subTest(name):
+                self.assertEqual(got, golden.read_text(), f"{name} changed: UPDATE_GOLDEN=1 make test-template, then review the diff")
+
+    def test_standard_secrets(self):
+        self.p.script("secrets.py", "init", "local")
+        values = self.p.read("site/secrets/local.env")
+        for name in ("CRM_DB_PASSWORD", "T10_CRM_SECRET", "AGENT_TI_CRM_SECRET", "CRM_WEB_CLIENT_SECRET", "CRM_SESSION_KEY"):
+            self.assertRegex(values, rf"(?m)^{name}=.+$")
+
+    def test_module_secrets_json_adds_and_replaces(self):
+        self.p.write("modules/crm/secrets.json", json.dumps({"secrets": [
+            {"name": "CRM_DATA_KEY", "generate": "b64key", "consumers": ["t10-crm"], "rotate": "Never."},
+            {"name": "CRM_SESSION_KEY", "generate": "hex32", "consumers": ["t10-crm"], "rotate": "Roll."}]}))
+        r = self.p.script("secrets.py", "rotate", "CRM_SESSION_KEY")
+        self.assertIn("Roll.", r.stdout)
+        self.p.script("secrets.py", "init", "local")
+        self.assertRegex(self.p.read("site/secrets/local.env"), r"(?m)^CRM_DATA_KEY=.+$")
+
+    def test_without_database(self):
+        self.p.write("src/crm/module/module.env", self.p.read("src/crm/module/module.env") + "DATABASE=false\n")
+        bundle = self.p.render()
+        base = (bundle / "modules/crm/standard/base.yml").read_text()
+        self.assertNotIn("crm-db", base)
+        self.assertNotIn("CRM_DB_PASSWORD", base)
+        self.assertNotIn("CRM_DB_PASSWORD", self.p.read("site/secrets/local.env"))
+
+    def test_grant_said_once_reaches_every_place(self):
+        catalog = self.p.dir / "src/crm/module/permissions/crm.yaml"
+        doc = json.loads(catalog.read_text())
+        doc["agent"]["actions"].append("crm:write")
+        catalog.write_text(json.dumps(doc))
+        bundle = self.p.render()
+        self.assertIn("crm:read,crm:write", (bundle / "modules.env").read_text())
+        agent = json.loads((bundle / "modules/crm/pack/agents/crm/agent.json").read_text())
+        self.assertIn("crm:write", agent["grants"]["actions"].split(","))
+        runtimes = {r["name"]: r for r in json.loads((bundle / "clients.yaml").read_text().split("\n", 1)[1])["runtimes"]}
+        for name in ("agent-ti-crm", "agent-ti", "agent-pi"):
+            self.assertIn("crm:write", runtimes[name]["actions"], name)
+            self.assertIn("t10-crm", runtimes[name]["audiences"], name)
+        # The pack in src/ is read as it is: only the bundle's copy changes.
+        self.assertNotIn("crm:write", self.p.read("src/crm/module/agents/crm/agent.json"))
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_module_compose_overrides_standard(self):
+        self.p.write("modules/crm/compose/base.yml", "services:\n  t10-crm:\n    read_only: false\n    environment:\n      EXTRA: yes-please\n")
+        self.p.secrets()
+        svc = self.p.compose_config()["services"]["t10-crm"]
+        self.assertFalse(svc.get("read_only", False))
+        self.assertEqual(svc["environment"]["EXTRA"], "yes-please")
+        self.assertIn("DATABASE_URL", svc["environment"])
+        self.assertEqual(svc["build"]["additional_contexts"]["kit"], str(self.p.dir / "kit" / "go"))
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_check_passes(self):
+        self.p.secrets()
+        r = self.p.run(*PY, "scripts/check.py", check=False, SCRIPTED="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class TemplateUpdate(unittest.TestCase):
+    """make template-update: the template's files come from it; the project's stay its own."""
+
+    def git(self, cwd, *args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                              cwd=cwd, capture_output=True, text=True, check=True).stdout
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="t10-template-update-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.template = Project()
+        self.addCleanup(self.template.close)
+        self.git(self.template.dir, "init", "-q", "-b", "main")
+        self.git(self.template.dir, "add", "-A")
+        self.git(self.template.dir, "commit", "-qm", "template")
+        self.project = self.tmp / "project"
+        self.git(self.tmp, "clone", "-q", "-o", "template", str(self.template.dir), "project")
+
+    def update(self, **env):
+        return subprocess.run(["scripts/template-update.sh"], cwd=self.project, capture_output=True, text=True, check=True,
+                              env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+                                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com", **env}).stdout
+
+    def test_takes_the_latest_release_and_shows_its_notes(self):
+        changelog = self.template.dir / "CHANGELOG.md"
+        changelog.write_text(changelog.read_text() + "\n## v9.0.0\n\n- Do this first.\n")
+        self.git(self.template.dir, "commit", "-qam", "v9")
+        self.git(self.template.dir, "tag", "v9.0.0")
+        (self.template.dir / "docs/guide.md").write_text("unreleased\n")
+        self.git(self.template.dir, "commit", "-qam", "after v9")
+        out = self.update()
+        self.assertIn("merged template/tags/v9.0.0", out)
+        self.assertIn("Do this first.", out)
+        self.assertNotEqual((self.project / "docs/guide.md").read_text(), "unreleased\n")
+        self.assertIn("merged template/main", self.update(REF="main"))
+        self.assertEqual((self.project / "docs/guide.md").read_text(), "unreleased\n")
+
+    def test_merges_template_and_keeps_project(self):
+        (self.project / "site/config/settings.env").write_text("PROJECT_NAME=mine\n")
+        (self.project / "README.md").write_text("# Mine\n")
+        self.git(self.project, "commit", "-qam", "project")
+        (self.template.dir / "docs/guide.md").write_text("new guide\n")
+        (self.template.dir / "site/config/settings.env").write_text("PROJECT_NAME=changed-in-template\n")
+        (self.template.dir / "README.md").write_text("# Template\n")
+        self.git(self.template.dir, "commit", "-qam", "update")
+        self.update()
+        self.assertEqual((self.project / "docs/guide.md").read_text(), "new guide\n")
+        self.assertEqual((self.project / "site/config/settings.env").read_text(), "PROJECT_NAME=mine\n")
+        self.assertEqual((self.project / "README.md").read_text(), "# Mine\n")
+
+
+if __name__ == "__main__":
+    unittest.main()

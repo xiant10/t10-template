@@ -1,0 +1,167 @@
+# Written by scripts/render.py. Don't edit. JSON is YAML.
+{
+  "clients": [
+    {
+      "id": "t10-mac-client",
+      "name": "t10 for Mac",
+      "type": "public",
+      "redirect_uris": [
+        "http://127.0.0.1/callback"
+      ],
+      "idle_ttl": "720h",
+      "absolute_ttl": "2160h"
+    },
+    {
+      "id": "t10-mobile",
+      "name": "t10 mobile app",
+      "type": "public",
+      "direct_login": true,
+      "idle_ttl": "2160h"
+    },
+    {
+      "id": "t10-workbench",
+      "name": "Workbench",
+      "type": "confidential",
+      "tenant": "required",
+      "redirect_uris": [
+        "http://127.0.0.1:38083/auth/callback"
+      ],
+      "secret_sha256": "a59af1ac17f3c817c7642f7005d2f68cb50a660729e9d61919bfaeb8a8e0dcc1",
+      "idle_ttl": "12h",
+      "absolute_ttl": "168h"
+    },
+    {
+      "id": "t10-console",
+      "name": "Platform console",
+      "type": "confidential",
+      "tenant": "none",
+      "redirect_uris": [
+        "http://127.0.0.1:38020/auth/callback"
+      ],
+      "secret_sha256": "9d94a9a302a38c8a662e30c865100cdd4c26d3ccc6690061ad8729de2386cf9a",
+      "idle_ttl": "1h",
+      "absolute_ttl": "12h"
+    },
+    {
+      "id": "t10-crm-web",
+      "name": "Crm",
+      "type": "confidential",
+      "tenant": "required",
+      "redirect_uris": [
+        "http://127.0.0.1:38100/auth/callback"
+      ],
+      "secret_sha256": "3f6ef62ef235c89bcf512c173f7bee44ad58728760c7134b6851f3dd45296ad6",
+      "idle_ttl": "12h",
+      "absolute_ttl": "168h"
+    }
+  ],
+  "runtimes": [
+    {
+      "name": "agent-ti",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "work:send",
+        "knowledge:read",
+        "crm:read"
+      ],
+      "audiences": [
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm",
+        "t10-crm"
+      ],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    },
+    {
+      "name": "agent-pi",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "knowledge:read",
+        "crm:read"
+      ],
+      "audiences": [
+        "agent-pi",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm",
+        "t10-crm"
+      ],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    },
+    {
+      "name": "t10-automations",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "work:send",
+        "knowledge:read",
+        "crm:read"
+      ],
+      "audiences": [
+        "ai-gateway",
+        "agent-pi",
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm",
+        "t10-crm"
+      ]
+    },
+    {
+      "name": "t10-livekit-agent",
+      "optional": true,
+      "voice": true,
+      "actions": [
+        "agent:use",
+        "work:read",
+        "work:write",
+        "knowledge:read",
+        "crm:read"
+      ],
+      "audiences": [
+        "agent-pi",
+        "agent-ti",
+        "t10-collab",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm",
+        "t10-crm"
+      ]
+    },
+    {
+      "name": "agent-ti-crm",
+      "optional": true,
+      "actions": [
+        "agent:use",
+        "knowledge:read",
+        "crm:read"
+      ],
+      "audiences": [
+        "agent-ti-crm",
+        "t10-knowledge",
+        "ai-gateway-tools",
+        "ai-gateway-llm",
+        "t10-crm"
+      ],
+      "tool_audience": "ai-gateway-tools",
+      "model_audience": "ai-gateway-llm"
+    }
+  ],
+  "exchangers": [
+    "ai-gateway-tools"
+  ]
+}

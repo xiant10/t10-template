@@ -15,10 +15,10 @@ folder and layered right after it.
 | `compose/base.yml` | The core's services, images only. Wiring in `environment:`, settings in `config/`. Nothing that differs by environment |
 | `compose/local.yml` | `local`: every core service published on 127.0.0.1 |
 | `compose/server.yml` | `dev` and `prod`: Caddy in front with TLS (its sites from each part's `public.json` and each module); nothing else published |
-| `k8s/` | The same on Kubernetes: `vendor/`, `base/`, and a component per layer, `local/` and `server/`. A skeleton until phase E of `../docs/plan.md`; see `k8s/README.md` |
 | `public.json` | The foundation's public addresses: the setting that holds each, and the service and port behind it |
 | `compose/scripted.yml`, `scripted/fake-model.mjs` | `SCRIPTED=1`: a scripted model in place of the provider, so nothing needs `LLM_API_KEY` |
 | `init-db.sh` | One database per foundation service, on a new Postgres volume |
+| `module-init-db.sh` | Each module's database and login, run by its `<id>-db` one-shot on every start (`../scripts/wiring.py`) |
 | `clients.json` | OAuth clients and runtimes, before modules add theirs. `scripts/render.py` merges it into auth-server's `clients.yaml` |
 | `agent-routes.json` | Agents and pools, before modules add theirs. Rendered and published to t10-agent-control |
 | `permissions/` | Foundation permission catalogs to deploy. None yet |

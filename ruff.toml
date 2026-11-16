@@ -1,0 +1,7 @@
+# make lint: the template's Python. The scripts favour one long line over a wrapped one.
+line-length = 170
+target-version = "py39"
+
+[lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = ["E731", "UP015"]

@@ -1,6 +1,6 @@
 # Business modules on the published t10 foundation
 
-Nov 15, 2026 · Revised Nov 16 to describe what's built: the Compose stack, which passes `make check` and `make smoke`, and the split into a template any project can reuse. Kubernetes and prod aren't built yet. They're in [`plan.md`](plan.md). Day-to-day use is in [`guide.md`](guide.md).
+Nov 15, 2026 · Revised Nov 16 (v0.1.0) to describe what's built: the Compose stack, which passes `make check` and `make smoke`, and the split into a template any project can reuse. Kubernetes and prod aren't built yet. They're in [`plan.md`](plan.md). Day-to-day use is in [`guide.md`](guide.md).
 
 A project made from this template deploys one or more business modules on the t10 foundation. It uses the foundation only through its published images and the configuration those images read. It changes no foundation source, builds no foundation image and needs no foundation checkout. The first such project deploys `t10-property`; the examples below use a module `<id>` with service `<service>`, and `crm` where a name helps.
 
@@ -13,6 +13,7 @@ A project made from this template deploys one or more business modules on the t1
 - What we learn goes back to the foundation through a tracked list, [`upstream.md`](upstream.md).
 - This repo is a template: nothing outside `modules/`, `site/` and `src/` names a module or a project.
 - A module's code lives in the project's `src/` by default, or in a repo of its own when several projects share it (Nov 16).
+- What every module shares is the template's, not copied into each module: its wiring into the foundation, its standard secrets, the single place its grants are said, and the Go code every module's service needs (Nov 16, v0.1.0).
 
 ## Goals
 
@@ -52,30 +53,42 @@ The layout and who owns each part are in [`guide.md`](guide.md#who-owns-what). I
 
 A project is made by copying the template repo and keeps it as a git remote. Template changes arrive by merging that remote. Because a project edits only `modules/`, `site/` and `README.md`, and overrides the template from `site/` rather than editing it, those merges don't conflict. Submodules or a generator such as copier would add a tool and a second place to look for little gain.
 
+### What a module shares is the template's
+
+`make new-module` once wrote everything a module needs into the module's own folders: about 90 lines of Compose wiring, five secrets, a database script, and 700 lines of Go for auth, MCP and the token verifier. Those folders are the project's, which `make template-update` never touches, so each copy was frozen the day it was made. A change in how the foundation takes a module (an `authctl` flag, the agents mount, the verifier) meant the same hand edit in every module of every project.
+
+So what's the same for every module is now worked out or imported, never copied:
+
+- **Wiring.** `scripts/render.py` writes each module's standard Compose wiring from its `module.env` on every command (`scripts/wiring.py`), into the bundle, just before the module's own Compose files, which can change anything in it. The standard secrets come from the same place. A module's folder holds what's particular to it: its settings, its address and port, its image pin, and any changes.
+- **Grants.** What a module's tools need is said once, in its catalog's `agent` block, which auth-server already reads. `render.py` gives it to the harnesses' lists, its agent's grant and the runtimes in `clients.yaml`; `make check` confirms it got there. It used to be written in four places that `make check` compared.
+- **Code.** `kit/go/` is a Go module, `t10kit`, which every module's `go.mod` reaches with `replace t10kit => ../../kit/go`, and which its Docker build gets as a named build context. A module's code is its tools, its web app and their tests; the kit has the tests of what every module answers.
+
+This keeps the rule that modules are only files and environment variables: the files a module would have written by hand are now written for it on every run, the same way `clients.yaml` and `modules.env` always were.
+
 ### Where a module's code lives
 
-A module's code is either in the project, `src/<service>/`, or in a repo of its own. `make new-module` puts it in the project unless given a `REPO`. Decided Nov 16, revising the Nov 15 choice of separate repos for every module.
+A module's code is either in the project, `src/<id>/`, or in a repo of its own. `make new-module` puts it in the project unless given a `REPO`. Decided Nov 16, revising the Nov 15 choice of separate repos for every module.
 
 **In the project, by default.** Most modules are built for one project, and there a second repo costs more than it gives: a change to a tool, its permission and its deployment was a commit in each repo, and nothing could run until the module's CI had published an image with a pack. With the code in `src/`:
 
-- local runs build it from `src/` and read its pack from `src/<service>/module/`, so a change is tried with `make reload`, with no image to publish and nothing to copy,
+- local runs build it from `src/` and read its pack from `src/<id>/module/`, so a change is tried with `make reload`, with no image to publish and nothing to copy,
 - `make test` runs its own tests in Docker, and `make smoke` checks it with the rest of the stack, in the same checkout,
 - one commit holds a change to its code, its permissions and its deployment,
 - servers still run a pinned image: `make release` builds it from `src/` as committed, pushes it and pins it, and `make check` fails on a server whose pin is behind `src/`.
 
 **A repo of its own, for a module several projects share**, such as `t10-property`. Its CI publishes the image every project pulls, it builds and tests on its own as every foundation sub-project does, and each project decides which version runs with which secrets, so a module release redeploys nothing. It's worked on from the project's folder too: `make clone` checks it out into `src/`, kept out of the project's git, and a change that touches both is one commit in each, the project's pinning the new image.
 
-A module can move from one to the other by moving its code and changing `source.env`; its `modules/<id>/` folder is the same apart from `compose/local.yml` and `pack/`.
+A module can move from one to the other by moving its code and changing `source.env`; its `modules/<id>/` folder is the same apart from `source.env` and `pack/`.
 
 ## The module pack
 
 Some facts only the module knows: its permissions, its agent, the actions its tools need. Those stay with the module's code and ship in its image, so the pack always matches the service version.
 
 1. The module's `module/` folder holds `module.env`, `agents/<agent>/`, `clients.fragment.json` and `permissions/<id>.yaml`. Its Dockerfile copies the folder to `/module`.
-2. For a module with its code in the project, that folder is `src/<service>/module/`, and the scripts read it there. There's no copy, so nothing can drift on local; on a server, `make check` makes sure the pinned image was built from the same commit.
+2. For a module with its code in the project, that folder is `src/<id>/module/`, and the scripts read it there. There's no copy, so nothing can drift on local; on a server, `make check` makes sure the pinned image was built from the same commit.
 3. For a module in its own repo, `make sync-module MODULE=<id>` copies `/module` out of the pinned image with `docker create` and `docker cp` into `modules/<id>/pack/`. It commits nothing on its own. `make check` fails if `modules/<id>/pack/` differs from the image pinned as `T10_<ID>`, and skips the check while the pinned image has no pack.
 
-`module.env` holds the facts the project's scripts need: `MODULE_ID`, `SERVICE`, `PORT`, `GRANT_ACTIONS`, `GRANT_AUDIENCE`, `SERVICE_ACCOUNTS`, `AGENT`, `AGENT_TITLE`, `AGENT_RUNTIME` and `PUBLIC_URL_SETTING`.
+`module.env` holds the facts the project's scripts and the standard wiring need; its keys are listed in [`module.md`](module.md#its-image-and-pack).
 
 The project keeps a copy, rather than reading the image at deploy time, because the clients file is a reviewed security file whose changes should show in a diff, and because kustomize will need files when it builds manifests.
 
@@ -86,9 +99,10 @@ Some foundation inputs are single values that each module adds to. `scripts/rend
 - **`clients.yaml`**: `foundation/clients.json` merged with each pack's `clients.fragment.json`. For existing runtimes it unions the actions and audiences. `${VAR}`, `"${sha256:VAR}"` and `"${bool:VAR}"` are filled from settings and secrets, so a web client's secret and its hash can't disagree. The files are JSON, which auth-server reads as YAML, so the scripts need nothing beyond Python's standard library.
 - **`permissions/`**: `foundation/permissions/` plus each pack's catalogs.
 - **`agent-routes.json`**: `foundation/agent-routes.json` plus a pool for each module's agent.
+- **Each agent's `agent.json`**, in the bundle's copy of its pack: its grant, with what its tools need added.
 - **`modules.env`**: `MODULE_GRANT_ACTIONS`, `MODULE_GRANT_AUDIENCES`, `MODULE_TOOL_SERVERS`, `MODULE_TOOL_MODULE_SERVERS`, `MODULE_WORKBENCH_URLS` and `MODULE_APP_URLS`. `foundation/compose/base.yml` appends each to its own list, so a module's Compose files hold only the module's own services.
 
-`make check` reproduces the foundation's `check-module-agents.py` rule. Every action in a catalog's `agent` block must be in the pack's `module.env`, in its agent's own grant, and in every runtime in `clients.yaml` that runs its tools.
+What a module's tools need comes from its catalog's `agent` block, and is added to the harnesses' lists, its agent's grant, its own runtimes and the foundation runtimes its fragment's `runtime_grants` names. `make check` reproduces the foundation's `check-module-agents.py` rule on the result: every action in a catalog's `agent` block reached each of them.
 
 ## Versions
 
@@ -151,16 +165,18 @@ What an environment runs is the same across targets: the merged `env/<service>.e
 - **Tools.** Harnesses use `ai-gateway-tools`: `/mcp/collab`, `/mcp/knowledge`, and `/mcp/modules` for modules. `AUTH_TOOL_GATEWAY=true` on `auth-server`, so harness tokens work only at the tools gateway. The tools gateway gets no `AGENT_CONTROL_URL` for now, because that turns on tenant policy, and then every tool call is refused until a platform admin publishes one.
 - **Routes.** The route publisher (`agent-routes`) only publishes when no revision exists. After a module adds or changes an agent, `make routes-publish` publishes the new document (U12).
 
-**A module's `compose/base.yml`** contains:
+**A module's standard wiring** (`scripts/wiring.py`, written into the bundle as `modules/<id>/standard/<name>.yml`) adds:
 
-- its service, with `AGENT_URL` pointing at `ai-gateway-agent`, read-only with a tmpfs `/tmp`; its `local.yml` publishes it on `127.0.0.1`;
+- its service, with the standard settings, `AGENT_URL` pointing at `ai-gateway-agent`, read-only with a tmpfs `/tmp`, and on local published on `127.0.0.1`;
 - a one-shot seed using the `auth-server` image that runs `authctl service-add --if-missing` for its service accounts, after `seed` and before `auth-server` (U2);
-- the few foundation settings only it needs, such as a sign-in setting on auth-server, its agent's client secret on agent-ti, and its pack's agent folder, mounted into `t10-agents` at `/module-agents/<agent>` so it's copied into the agents volume (U4);
-- its database and login, made if missing by a one-shot `<id>-db` that runs its `init-db.sh` against Postgres on every start, so a module added to a running stack needs no reset, and setting the password each time makes rotating it a restart.
+- its pack's agent folder, mounted into `t10-agents` at `/module-agents/<agent>` so it's copied into the agents volume (U4), and its agent's client secret on agent-ti;
+- its database and login, made if missing by a one-shot `<id>-db` that runs `foundation/module-init-db.sh` (then its own `init-db.sh`, if it has one) on every start, so a module added to a running stack needs no reset, and setting the password each time makes rotating it a restart.
 
-**Building modules.** Module images are the only ones ever built, and their source is the only thing the local bundle reads from the checkout. A module with its code in the project has `build:` in its `compose/local.yml`, so every local `make up` builds it from `src/<SRC>`; servers pull its released image. A module in its own repo is pulled, unless `DEV=1` adds its `compose/build.yml`, which builds it from its checkout in `src/<SRC>`.
+Its own `compose/base.yml` holds only the few things particular to it, such as a sign-in setting on auth-server or a secret of its own on its service.
 
-**Two switches.** `DEV=1`, above, and `SCRIPTED=1`. `SCRIPTED=1` adds `foundation/compose/scripted.yml`, which points `ai-gateway-llm` at a scripted model (`foundation/scripted/fake-model.mjs`), so `make up` and `make smoke` work with no `LLM_API_KEY`. A module's own `compose/scripted.yml` names, in `SCRIPTED_TOOL_<ID>`, a tool the scripted model calls, so a turn reaches the module through `ai-gateway-tools`.
+**Building modules.** Module images are the only ones ever built, and their source is the only thing the local bundle reads from the checkout. A module with its code in the project gets `build:` in its standard local wiring, with the template's `kit/go/` as a named build context, so every local `make up` builds it from `src/<SRC>`; servers pull its released image. A module in its own repo is pulled, unless `DEV=1` adds its standard build wiring, which builds it from its checkout in `src/<SRC>`.
+
+**Two switches.** `DEV=1`, above, and `SCRIPTED=1`, which `make` turns on by itself on local while there's no `LLM_API_KEY`. `SCRIPTED=1` adds `foundation/compose/scripted.yml`, which points `ai-gateway-llm` at a scripted model (`foundation/scripted/fake-model.mjs`), so `make up` and `make smoke` work with no `LLM_API_KEY`. A module's own `compose/scripted.yml` names, in `SCRIPTED_TOOL_<ID>`, a tool the scripted model calls, so a turn reaches the module through `ai-gateway-tools`.
 
 **Hooks.** `make seed-demo` adds auth-server's sample accounts, then runs each `modules/<id>/hooks/seed-demo.sh`, which typically runs the module's own seed scripts from `src/` through `scripts/compose.sh`. Local only, because the sample password is published. `make smoke` runs each `modules/<id>/hooks/smoke.py` after its generic checks, such as an assistant turn that follows its tool call.
 
@@ -182,28 +198,7 @@ From lowest to highest precedence:
 
 `scripts/render.py` merges 2 and 4 into `generated/<env>/env/<service>.env`, which is the service's only `env_file:`. `config/settings.env` and `config/<layer>/settings.env` in each part hold values Compose interpolates and scripts read, such as public URLs, ports, `TARGET` and `PROJECT_NAME`, layered the same way. `T10_ENV` and `T10_SHAPE` come from the bundle's `compose.sh`.
 
-```text
-foundation/config/
-├── auth-server.env              AUTH_TOOL_GATEWAY=true, where the mounted files are
-├── ai-gateway-llm.env           provider base URL, model names
-├── ai-gateway-llm/config.yaml   model aliases, fallback, quotas (from quickstart's ai-gateway.yaml)
-├── agent-pi.env  agent-ti.env  workbench.env  …
-├── settings.env                 TARGET=compose
-├── local/
-│   ├── settings.env             public URLs and published ports on this machine (defaults)
-│   └── auth-server.env          AUTH_DEV_MODE=true
-└── server/
-    ├── settings.env             TODO where every server must decide: addresses, deploy host, LiveKit's IP
-    └── auth-server.env          AUTH_TRUST_PROXY=true, behind Caddy
-modules/<id>/config/
-├── <service>.env                its service's settings, such as LISTEN_ADDR
-├── settings.env                 values foundation services need from it
-├── local/settings.env           <ID>_PUBLIC_URL, <ID>_PORT
-└── server/settings.env          <ID>_PUBLIC_URL=TODO
-site/config/
-├── settings.env                 PROJECT_NAME
-└── <env>/settings.env           this project's values per environment; SHAPE for any beyond local, dev, prod
-```
+Where each kind of setting goes, and the layout of `config/`, are in [`guide.md`](guide.md#changing-a-setting).
 
 Because `environment:` would override every env file, it keeps only wiring: service addresses on the Compose network, values built from secrets, and the `MODULE_*` additions. Settings shared by many services' wiring, such as how to reach auth-server and the gateways, are YAML anchors at the top of `foundation/compose/base.yml`. Files in `config/<svc>/` are bind-mounted read-only. `make up` recreates only the containers whose settings changed.
 
@@ -211,7 +206,7 @@ Because `environment:` would override every env file, it keeps only wiring: serv
 
 ## Secrets
 
-Each part's `secrets.json` (`foundation/`, each module, and `site/` if it adds any) is the inventory: each secret's name, its consumers, how to generate it (`hex32`, `b64key`, or `provided` by an outside party) and how to rotate it. They never hold values.
+Each part's `secrets.json` (`foundation/`, each module, and `site/` if it adds any), with each module's standard secrets before its own, is the inventory: each secret's name, its consumers, how to generate it (`hex32`, `b64key`, or `provided` by an outside party) and how to rotate it. They never hold values.
 
 The values live in `site/secrets/<env>.env`, the only place any command reads them from, and are copied into the bundle as `secrets.env`. They were once kept in `generated/<env>/` for server environments, which made the output folder the only copy of prod's secrets; now `generated/` is always derived.
 
@@ -231,14 +226,7 @@ A project is where we learn what a business module needs from the foundation. Th
 
 ## Checks
 
-| Command | Checks |
-| --- | --- |
-| `make check` | Needs no running stack: each module's folder is named for it and its pack matches its pinned image, the environment's secrets are complete, no secret is set among settings, the grants agree, no `TODO` is left on a server, Compose renders, and the bundle mounts nothing from outside itself |
-| `make smoke` | On local, after `make up`: every published service and module answers, the admin signs in, each module answers `/v1/module` and `/v1/access`, the landing page lists each module's app, every routed agent answers by name through `ai-gateway-agent`, then each module's `hooks/smoke.py`. With `SCRIPTED=1`, no identity header reached the model. On a server: every public address answers through Caddy, and auth-server serves its signing key there (U14) |
-| `make test` | Each module with its code in the project: its Dockerfile's `test` stage, so its tests run with the image's toolchain |
-| Module CI | A module in its own repo: its own tests and image publish |
-
-Before reporting a change as done: `make verify`, which runs `make test`, `make down-all && make up`, then `make seed-demo`, `make check` and `make smoke`.
+Three levels, each needing more than the one before: `make test-template` and `make lint` check the template's own scripts and kit with no stack; `make test` and `make check` check each module and the rendered bundle with no stack; `make smoke` checks a running stack end to end. `make verify` runs the last two from empty volumes, and CI runs all three. What each command covers is in [`guide.md`](guide.md#commands). A module in its own repo also has its own repo's CI.
 
 ## Alternatives considered
 
@@ -249,4 +237,6 @@ Before reporting a change as done: `make verify`, which runs `make test`, `make 
 | Read the pack from the image at deploy time | The clients file's changes should be reviewed in a diff, and kustomize needs files at build time |
 | Build foundation images from source | Not what was asked, and it breaks "same image everywhere" |
 | A generator (copier, cookiecutter) or submodule for the template | Another tool to install and learn; a git remote and a clear ownership rule do the same |
+| Copy what every module shares into each module (as before v0.1.0) | A template update can't reach the copies, so a foundation change means the same hand edit in every module |
+| Publish the Go kit as a Go module in its own repo | A second repo and release cycle to keep in step with the template; the template is private, so every build would need credentials. It moves to the foundation once U16 is done |
 | Remote kustomize bases, or a Helm chart for the platform | See `plan.md` |

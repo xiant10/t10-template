@@ -40,8 +40,8 @@
     "url": "${AUTH_URL:-http://auth-server.t10.svc.cluster.local:18000}",
     "clientId": "agent-ti-__id__",
     "clientSecret": "${__ID___AUTH_CLIENT_SECRET:-}",
-    "actions": "agent:use,knowledge:read,__id__:read",
-    "audiences": "agent-ti-__id__,t10-knowledge,__service__,ai-gateway-tools,ai-gateway-llm"
+    "actions": "agent:use,knowledge:read",
+    "audiences": "agent-ti-__id__,t10-knowledge,ai-gateway-tools,ai-gateway-llm"
   },
   "tenantSkills": {
     "url": "${AGENT_CONTROL_URL:-http://t10-agent-control.t10.svc.cluster.local:18010}"

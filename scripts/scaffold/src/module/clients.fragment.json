@@ -16,16 +16,14 @@
     {
       "name": "agent-ti-__id__",
       "optional": true,
-      "actions": ["agent:use", "knowledge:read", "__id__:read"],
-      "audiences": ["agent-ti-__id__", "t10-knowledge", "__service__", "ai-gateway-tools", "ai-gateway-llm"],
+      "actions": ["agent:use", "knowledge:read"],
+      "audiences": ["agent-ti-__id__", "t10-knowledge", "ai-gateway-tools", "ai-gateway-llm"],
       "tool_audience": "ai-gateway-tools",
       "model_audience": "ai-gateway-llm"
     }
   ],
-  "_comment_grants": "Added to each foundation runtime that may run __id__'s tools; one the project doesn't run is skipped.",
+  "_comment_grants": "The foundation runtimes that may run __id__'s tools; one the project doesn't run is skipped. Each, and agent-ti-__id__ above, gets what permissions/__id__.yaml's agent block says its tools need.",
   "runtime_grants": {
-    "actions": ["__id__:read"],
-    "audiences": ["__service__"],
     "runtimes": ["agent-pi", "agent-ti", "t10-livekit-agent", "t10-automations"]
   }
 }

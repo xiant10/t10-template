@@ -4,24 +4,14 @@ Nov 16, 2026 · Revised Nov 16: re-planned top down, structure first. What's bui
 
 ## Order of work
 
-Each phase builds on the one before: the structure every later step lands in, then proof that it's a template, then what a server needs (secrets first), then Compose on servers, then Kubernetes.
+Each phase builds on the one before: the structure every later step lands in, then proof that it's a template, then what a server needs (secrets first), then Compose on servers, then Kubernetes. A finished step leaves this table for [`CHANGELOG.md`](../CHANGELOG.md) when it's released.
 
 | Step | Change | Status |
 | --- | --- | --- |
-| **A. Structure** | Moves only, nothing behaves differently. Each step checked by diffing the rendered Compose config and a full local run | |
-| A1 | The ownership rule, written in `guide.md`: the root and `foundation/` are the template's, `modules/` and `site/` the project's, `src/` and `generated/` never committed (`src/` became the project's in B5); every part layered the same way | Done Nov 16 |
-| A2 | Secrets: the values in `site/secrets/<env>.env`, one code path for every environment, `generated/` only ever a copy; `make secrets-init ENV=…` for any environment | Done Nov 16 |
-| A3 | Versions in layers: `foundation/versions.env` (the template's tested set), `modules/<id>/versions.env`, optional `site/versions.env`, merged into the bundle; `modules/<id>/source.env` replaces `repos.txt`; `make pin` writes the file that wins | Done Nov 16 |
-| A4 | `foundation/dev/` renamed `foundation/scripted/`, as `dev` is now an environment; the project's own plan moved to `site/docs/` | Done Nov 16 |
-| A5 | Merge the Kubernetes skeleton: `foundation/k8s/{vendor,base,local,server}/`, a module's `k8s/`, `site/k8s/`; base plus each layer builds, empty | Done Nov 16 |
-| **B. Prove the template** | | |
-| B1 | A copy with no module: `make up`, `make check` and `make smoke` on the foundation alone. Found that `t10-agents` installed every agent its image ships, including a module's (U6), which crashed `agent-ti` without that module's account; it now copies only the foundation's `ti` plus each module's agent from `/module-agents/` | Done Nov 16 |
-| B2 | `make new-module ID=…`, which makes the folder, and a written module contract (`module.md`). A scaffolded `property` plus its own additions matched its hand-written folder and passed a full local run. Local runs now add a new module's generated secrets themselves | Done Nov 16 |
-| B3 | The template as its own repo, `xiant10/t10-template`, with no module; a project tracks it as a git remote, `make template-update` merges it keeping `README.md`, `modules/` and `site/` as they are, and `make check` warns when a template file was edited in the project. Tested on a throwaway project: an update, nothing to update, and a conflict on an edited template file | Done Nov 16 |
-| B4 | Foundation components: `foundation/` split into a core and `components/` (`assistant`, `livekit`, `console`, `automations`), which a project picks with `FOUNDATION`; agent-sales removed. Everything on, and the core alone, each pass a full local run | Done Nov 16 |
-| B5 | A module's code in the project: `make new-module` writes a working Go service in `src/<service>/` (contract, verifier, one tool, tests, pack), which local runs build and whose pack is read in place; `make test`, `make reload`, `make verify` and `make release`; a module's database made by a one-shot on every start, so a module joins a running stack; `make up` publishes changed routes; `make smoke` runs a turn with each module's agent. Modules in their own repos work as before. A scaffolded module passed `make verify`, and `make release` was tested against a local registry | Done Nov 16 |
+| **A. Structure**, **B. Prove the template** | The ownership rule and layout; secrets, versions and environments in layers; foundation components; the template as its own repo with `make template-update`; `make new-module` with a module's code in the project, `make test`, `reload`, `verify` and `release`. What each step found is in git history | Done Nov 16 |
+| B6 | Maintainability (v0.1.0, [`CHANGELOG.md`](../CHANGELOG.md)): each module's standard wiring and secrets generated from its `module.env`; its grants said once, in its catalog; the Go kit, `kit/go/`; `make doctor`, `lint`, `test-template`; tests in `tests/`; CI; releases with migration notes; the scripted model on by itself; the empty Kubernetes skeleton removed. The generated wiring was diffed against the old copied wiring for local, `DEV=1`, `SCRIPTED=1` and prod, and a scaffolded module passed `make verify` | Done Nov 16 |
 | **C. Secrets** | Before any server, since a server needs its secrets | |
-| C1 | The inventory says which service gets which secret: `consumers` becomes a map from service to variable to value (such as `DATABASE_URL`), and `render.py` writes each service's secrets as its own file, which Compose reads as a second env file and Kubernetes as that service's Secret. Most `${…}` references leave `foundation/compose/base.yml`. A generator for keys like the signing key (`authctl gen-key`, one-line PEM) | Not started |
+| C1 | The inventory says which service gets which secret: `consumers` becomes a map from service to variable to value (such as `DATABASE_URL`), and `render.py` writes each service's secrets as its own file, which Compose reads as a second env file and Kubernetes as that service's Secret. Most `${…}` references leave `foundation/compose/base.yml` and the standard module wiring. A generator for keys like the signing key (`authctl gen-key`, one-line PEM) | Not started |
 | C2 | SOPS and age: `site/secrets/.sops.yaml`, `make secrets-init ENV=…` and `make secrets-edit ENV=…` on `<env>.enc.env`; decrypted to `site/secrets/<env>.env` only while a command runs, and the bundle's copy deleted from this machine after `make deploy` | Not started |
 | C3 | Rotation: what `make rotate` prints today, working for each environment | Not started |
 | **D. Compose on servers** | Built so far: the `server`, `dev` and `prod` layers, `SHAPE`, `TARGET`, one Compose project per environment, Caddy with TLS from each part's public addresses, LiveKit for real, `make deploy` (Nov 16; tested on this machine behind Caddy on `*.localhost`, not yet on a real host) | |
@@ -30,12 +20,11 @@ Each phase builds on the one before: the structure every later step lands in, th
 | **E. Kubernetes** | Once Compose on a server isn't enough | |
 | E1 | The module lists (`TOOL_SERVERS`, `GRANT_*`, …) move from `foundation/compose/base.yml` into `config/`, with `render.py` appending each module's, so both targets read them | Not started |
 | E2 | `make vendor` | Not started |
-| E3 | `foundation/k8s/` base and a component per layer, each module's component, `render.py` writing `generated/<env>/` as a kustomize folder, `TARGET=k8s` | Skeleton only (A5) |
+| E3 | `foundation/k8s/` base and a component per layer, each module's component (generated, like its Compose wiring), `render.py` writing `generated/<env>/` as a kustomize folder, `TARGET=k8s` | Not started (the empty skeleton was removed in v0.1.0) |
 | E4 | A `k8s-local` environment on Docker Desktop passes `make check` and `make smoke` | Not started |
 | E5 | A cluster, with Postgres in the cluster | Not started |
 | **F. Ongoing** | `upstream.md` items; projects pin their modules once their images have packs | |
 
-Done before the re-plan, Nov 16: the inventory and local secrets, the clients merge, each service's settings merged into `env/<service>.env`, the self-contained bundle in `generated/<env>/`, the template split (`modules/<id>/`, `site/`, `src/`, module hooks, nothing outside `modules/`, `site/` and `src/` naming a module), and `make check` and a scripted Compose smoke test, run locally since the repo has no CI.
 
 ## Kubernetes (E)
 
@@ -43,7 +32,7 @@ The foundation's manifests live in each foundation repo's `deploy/k8s`, and the 
 
 1. **`make vendor`** copies each foundation repo's `deploy/k8s` into `foundation/k8s/vendor/<repo>/`, at the commit that repo's pinned image tag names (`sha-<commit>` in `versions.env`), for example with `git archive` from GitHub. The files are committed, never edited by hand, and their diff shows up on every upgrade.
 2. **`foundation/k8s/`** is our copy of the workspace's `deploy/k8s/base`, minus any module, pointing at `vendor/`. Its `images:` block maps each local image name (`auth-server:latest`, …) to the pin from `versions.env`.
-3. **`modules/<id>/k8s/`** is a kustomize Component, so an overlay adds a module with one line:
+3. **Each module's component** is generated from its `module.env`, as its Compose wiring is (`scripts/wiring.py`), with `modules/<id>/k8s/` only for what's particular to it. A kustomize Component, so an overlay adds a module with one line:
    - its Deployment and Service (vendored from its repo's `deploy/k8s`, image pinned),
    - a `configMapGenerator` merging `<id>.yaml` into `auth-server-permissions` and `<id>=…` into `workbench-modules` (`MODULES_DIR`), as the workspace's `catalog/` does today,
    - a ConfigMap of the agent folder, and a patch adding an init container to `agent-ti` that copies it into the agents emptyDir after `t10-agents`,

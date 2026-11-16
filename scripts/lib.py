@@ -1,33 +1,14 @@
 """Shared by the scripts: where things live, and reading KEY=value files.
 
-A project is made of parts, laid out alike, each with any of compose/, config/, secrets.json,
-versions.env and init-db.sh. In the order they're layered, later ones winning:
+A project is made of parts, layered in this order, later ones winning: foundation/, its
+components that are on (FOUNDATION), each modules/<id>/, then site/. Each module's standard
+wiring and secrets (wiring.py) come just before its own folder's. Inside each part, config/
+and compose/ are layered by environment: local, or server then dev or prod, or what an
+environment's SHAPE names, then the environment's own. docs/guide.md describes the layout; this
+file is the code that finds it.
 
-    foundation/      the t10 foundation's core, which every project runs (from the template)
-    foundation/components/<name>/
-                     the foundation's optional pieces, such as LiveKit or the console: those named
-                     in FOUNDATION, the project's list or else the template's
-    modules/<id>/    one per business module, with pack/ from the module's image
-    site/            this project's own choices: its name, ports, addresses, overrides
-
-Nothing outside modules/, site/ and src/ names a module, so every project shares the rest.
-
-A module's code is in one of two places, as its modules/<id>/source.env says:
-
-    in the project   SRC only: its source is src/<SRC>/, committed here. Local runs build it
-                     from there, and its pack is src/<SRC>/module/, read as it is
-    its own repo     SRC and REPO: `make clone` fetches it into src/<SRC>/, which git ignores.
-                     Its pack is modules/<id>/pack/, copied out of its pinned image
-
-Inside each part, config/ and compose/ are layered by environment. The template ships three:
-
-    local    this machine: ports on 127.0.0.1, auth-server's dev mode, DEV=1 and SCRIPTED=1
-    dev      a shared server: Caddy with TLS in front, auth as in prod
-    prod     a server: Caddy with TLS in front, with prod's stricter secret checks
-
-dev and prod both build on a `server` layer, for what every server shares. Any other
-environment, such as uat, names the one it's like as SHAPE in site/config/<env>/settings.env,
-and adds its own layer on top: site/config/uat/, compose/uat.yml.
+A module's code is in the project, src/<SRC>/ with its pack in src/<SRC>/module/, when its
+source.env has SRC and no REPO; else in its own repo, with its pack copied to modules/<id>/pack/.
 
 Scripts run with `python3 -I`, so each puts this folder on sys.path itself before importing.
 Shell scripts ask it for settings instead:
@@ -41,6 +22,9 @@ Shell scripts ask it for settings instead:
 import json
 import pathlib
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import wiring  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FOUNDATION = ROOT / "foundation"
@@ -213,13 +197,27 @@ def built(only=None):
 
 
 def inventory():
-    """Every secret, from each part's secrets.json: the foundation's, its components' that run, each module's."""
-    out = []
+    """Every secret, from each part's secrets.json: the foundation's, its components' that run,
+    each module's standard ones (scripts/wiring.py) then its own, and site's. A later entry with
+    the same name replaces an earlier one."""
+    out = {}
+    standard = {d: m for d, _, m in modules()}
     for part in parts():
+        if part in standard:
+            out.update({s["name"]: s for s in wiring.secrets(standard[part])})
         f = part / "secrets.json"
         if f.exists():
-            out += json.loads(f.read_text())["secrets"]
-    return out
+            out.update({s["name"]: s for s in json.loads(f.read_text())["secrets"]})
+    return list(out.values())
+
+
+def grant(pack, m):
+    """What a module's agent tools need, as (actions, audience): its catalog's agent block, the
+    one place a module says it. module.env's GRANT_ACTIONS and GRANT_AUDIENCE may add to it.
+    scripts/render.py gives it to the module's agent, its runtimes and the harnesses."""
+    agent = json.loads((pack / "permissions" / f"{m['MODULE_ID']}.yaml").read_text()).get("agent", {})
+    actions = list(dict.fromkeys(agent.get("actions", []) + [a for a in m.get("GRANT_ACTIONS", "").split(",") if a]))
+    return actions, agent.get("audience") or m.get("GRANT_AUDIENCE") or m["SERVICE"]
 
 
 def secrets_off():
@@ -252,7 +250,7 @@ def finish(note=""):
 
 
 # What the deployment bundle copies from each part, beside what scripts/render.py writes.
-BUNDLED = ("compose", "config", "scripted", "pack", "init-db.sh")
+BUNDLED = ("compose", "config", "scripted", "pack", "init-db.sh", "module-init-db.sh")
 
 
 if __name__ == "__main__":

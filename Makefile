@@ -4,17 +4,27 @@
 # ENV=local (default), dev, prod, or another in site/config/. A module whose code is in src/ is
 # always built from there on local; DEV=1 also builds each module in a repo of its own from its
 # checkout in src/ (local only).
-# SCRIPTED=1 uses a scripted model, so nothing needs LLM_API_KEY.
+# SCRIPTED=1 uses a scripted model, so nothing needs LLM_API_KEY. On local it's on by itself
+# while site/secrets/local.env has no LLM_API_KEY; SCRIPTED= (empty) turns it off.
 
 ENV ?= local
+ifeq ($(ENV),local)
+SCRIPTED ?= $(if $(shell sed -n 's/^LLM_API_KEY=..*/x/p' site/secrets/local.env 2>/dev/null),,1)
+endif
 export ENV DEV SCRIPTED MODULE IMAGE
 COMPOSE := scripts/compose.sh
 PY := python3 -I -B
+# The linters `make lint` runs, in Docker so nothing needs installing.
+RUFF := ghcr.io/astral-sh/ruff:0.8.4
+SHELLCHECK := koalaman/shellcheck:v0.10.0
 
-.PHONY: help clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate
+.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate lint test-template
 
 help: ## List the commands
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
+
+doctor: ## Whether this machine can run the project: Docker, Compose, Python, free ports
+	@$(PY) scripts/doctor.py
 
 clone: ## Clone each module that has a repo of its own (its source.env) into src/, kept out of git
 	@$(PY) scripts/lib.py sources | while read -r dir url; do \
@@ -84,12 +94,15 @@ release: ## Build, push and pin a module from src/ for servers: MODULE=<id> (IMA
 config-show: ## A service's settings and where each came from: make config-show SVC=auth-server
 	@$(PY) scripts/config-show.py $(SVC)
 
+# upstream U17: t10-agent-control won't drop the pool of a module that was removed, and agentctl
+# can't retire one, so that import is refused; it says so rather than failing `make up`.
 routes-publish: ## Publish generated/<env>/agent-routes.json to t10-agent-control, after an agent changes
 	@$(COMPOSE) run --rm --no-deps --quiet-pull --entrypoint sh agent-routes -c \
 		'out=$$(agentctl import /routes.json --reason "make routes-publish" 2>&1); s=$$?; echo "$$out"; \
-		[ $$s -eq 0 ] || echo "$$out" | grep -q "changes nothing"'
+		[ $$s -eq 0 ] || echo "$$out" | grep -q "changes nothing" || { echo "$$out" | grep -q "until it.s retired" && \
+		echo "warn: a removed module'"'"'s agent pool is still routed, so the routes weren'"'"'t published (upstream U17); on local, make down-all && make up starts afresh"; }'
 
-new-module: ## A new module, its code in src/: ID=crm SERVICE=t10-crm PORT=18076 (REPO=… if it has its own repo)
+new-module: ## A new module, its code in src/<id>/: ID=crm (SERVICE=t10-crm PORT=… optional; REPO=… for its own repo)
 	@$(PY) scripts/new-module.py "$(ID)" "$(SERVICE)" "$(PORT)" $(REPO)
 
 template-update: ## Merge the template's latest (git remote template); README.md, modules/, site/ and src/ stay yours
@@ -103,3 +116,11 @@ pin: ## Show what each foundation image's latest is; WRITE=1 rewrites the versio
 
 rotate: ## How to rotate one secret: make rotate NAME=AUTH_ADMIN_PASSWORD
 	@$(PY) scripts/secrets.py rotate $(NAME)
+
+lint: ## Lint the template's Python and shell scripts, in Docker
+	@docker run --rm -v "$(CURDIR):/w" -w /w $(RUFF) check --quiet scripts tests
+	@docker run --rm -v "$(CURDIR):/w" -w /w $(SHELLCHECK) -S warning scripts/*.sh foundation/*.sh
+
+test-template: ## The template's own tests: its scripts (tests/) and its Go kit (kit/go/), no stack needed
+	@$(PY) tests/test_template.py $(if $(V),-v)
+	@docker build -q kit/go >/dev/null && echo "kit/go: vet and tests passed"

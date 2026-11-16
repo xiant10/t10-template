@@ -1,12 +1,52 @@
-package main
+package module
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
 )
+
+// Tool is one agent tool. Run gets the person the agent acts for, never the agent's own rights.
+type Tool struct {
+	Name, Description string
+	// Action is the delegated action calling it needs, such as crm:read. It must be in the
+	// catalog's agent block, the one place a module says what its tools need.
+	Action string
+	// ReadOnly tells harnesses the tool changes nothing.
+	ReadOnly bool
+	Schema   map[string]any
+	Run      func(ctx context.Context, c Caller, args json.RawMessage) (any, error)
+}
+
+// ErrBadArguments is what Run returns when the arguments don't fit; Args returns it for you.
+var ErrBadArguments = errors.New("the arguments don't fit this tool")
+
+// Args decodes a tool's arguments into A, refusing fields it doesn't know.
+func Args[A any](run func(ctx context.Context, c Caller, a A) (any, error)) func(context.Context, Caller, json.RawMessage) (any, error) {
+	return func(ctx context.Context, c Caller, raw json.RawMessage) (any, error) {
+		var a A
+		if len(bytes.TrimSpace(raw)) > 0 && string(bytes.TrimSpace(raw)) != "null" {
+			d := json.NewDecoder(bytes.NewReader(raw))
+			d.DisallowUnknownFields()
+			if d.Decode(&a) != nil {
+				return nil, ErrBadArguments
+			}
+		}
+		return run(ctx, c, a)
+	}
+}
+
+// Schema is a tool's input schema: an object with these properties, no others.
+func Schema(required []string, properties map[string]any) map[string]any {
+	if required == nil {
+		required = []string{}
+	}
+	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
+}
 
 // The tools side of MCP over Streamable HTTP, with no session and no stream. Harnesses reach
 // it only through ai-gateway-tools, with a delegated token for the person they act for.
@@ -28,11 +68,11 @@ type rpcMessage struct {
 
 // Listing needs no token: harnesses list at startup with no user, and the list holds
 // nothing about a tenant. Calling one needs the person's delegated token.
-func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
+func (m *Module) mcp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	// For harnesses through the gateway only, never for pages.
 	if r.Header.Get("Origin") != "" {
-		reply(w, 403, map[string]string{"error": "forbidden"})
+		Reply(w, 403, map[string]string{"error": "forbidden"})
 		return
 	}
 	var message rpcMessage
@@ -55,24 +95,24 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			version = params.ProtocolVersion
 		}
 		rpcResult(w, message.ID, map[string]any{"protocolVersion": version, "capabilities": map[string]any{"tools": map[string]any{}},
-			"serverInfo": map[string]any{"name": service, "version": "1"}})
+			"serverInfo": map[string]any{"name": m.Service, "version": "1"}})
 	case "ping":
 		rpcResult(w, message.ID, map[string]any{})
 	case "tools/list":
 		listed := []map[string]any{}
-		for _, t := range tools() {
-			listed = append(listed, map[string]any{"name": t.name, "description": t.description, "inputSchema": t.schema,
-				"annotations": map[string]any{"readOnlyHint": t.action == readAction}})
+		for _, t := range m.Tools {
+			listed = append(listed, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema,
+				"annotations": map[string]any{"readOnlyHint": t.ReadOnly}})
 		}
 		rpcResult(w, message.ID, map[string]any{"tools": listed})
 	case "tools/call":
-		s.call(w, r, message)
+		m.call(w, r, message)
 	default:
 		rpcError(w, 200, message.ID, rpcMethodNotFound, "unknown method")
 	}
 }
 
-func (s *Server) call(w http.ResponseWriter, r *http.Request, message rpcMessage) {
+func (m *Module) call(w http.ResponseWriter, r *http.Request, message rpcMessage) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -81,16 +121,18 @@ func (s *Server) call(w http.ResponseWriter, r *http.Request, message rpcMessage
 		rpcError(w, 200, message.ID, rpcInvalidParams, "params aren't valid")
 		return
 	}
-	all := tools()
-	i := slices.IndexFunc(all, func(t tool) bool { return t.name == params.Name })
-	action := readAction
+	i := slices.IndexFunc(m.Tools, func(t Tool) bool { return t.Name == params.Name })
+	// Check the token before saying whether the tool exists: for an unknown one, against the
+	// first tool's action.
+	action := m.ID + ":read"
 	if i >= 0 {
-		action = all[i].action
+		action = m.Tools[i].Action
+	} else if len(m.Tools) > 0 {
+		action = m.Tools[0].Action
 	}
-	// Check the token before saying whether the tool exists.
-	c, err := s.Access.Agent(r.Context(), r.Header.Get("Authorization"), action)
+	c, err := m.Access.Agent(r.Context(), r.Header.Get("Authorization"), action)
 	if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrForbidden) {
-		refuse(w, err)
+		Refuse(w, err)
 		return
 	}
 	if err != nil {
@@ -101,14 +143,14 @@ func (s *Server) call(w http.ResponseWriter, r *http.Request, message rpcMessage
 		rpcError(w, 200, message.ID, rpcInvalidParams, "unknown tool")
 		return
 	}
-	out, err := all[i].run(r.Context(), c, params.Arguments)
-	if errors.Is(err, errBadArguments) {
+	out, err := m.Tools[i].Run(r.Context(), c, params.Arguments)
+	if errors.Is(err, ErrBadArguments) {
 		rpcResult(w, message.ID, toolFailure("invalid_arguments", "check the arguments against the tool's schema; don't repeat the same call"))
 		return
 	}
 	if err != nil {
 		slog.Error("tool failed", "tool", params.Name, "error", err)
-		rpcResult(w, message.ID, toolFailure("unavailable", "the __id__ module couldn't answer; try again shortly"))
+		rpcResult(w, message.ID, toolFailure("unavailable", "the "+m.ID+" module couldn't answer; try again shortly"))
 		return
 	}
 	encoded, err := json.Marshal(out)
@@ -119,7 +161,7 @@ func (s *Server) call(w http.ResponseWriter, r *http.Request, message rpcMessage
 	// Marked as data, since people wrote the text in it. json.Marshal escapes <, so the text
 	// can't close the tag.
 	rpcResult(w, message.ID, map[string]any{"content": []map[string]any{{"type": "text",
-		"text": "<module_record module=\"" + moduleID + "\">\n" + string(encoded) + "\n</module_record>"}}})
+		"text": "<module_record module=\"" + m.ID + "\">\n" + string(encoded) + "\n</module_record>"}}})
 }
 
 func toolFailure(code, text string) map[string]any {
@@ -127,9 +169,9 @@ func toolFailure(code, text string) map[string]any {
 }
 
 func rpcResult(w http.ResponseWriter, id json.RawMessage, result any) {
-	reply(w, 200, map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+	Reply(w, 200, map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
 func rpcError(w http.ResponseWriter, status int, id json.RawMessage, code int, message string) {
-	reply(w, status, map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": message}})
+	Reply(w, status, map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": code, "message": message}})
 }

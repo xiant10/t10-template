@@ -2,7 +2,13 @@
 
 A starting point for a project that runs business modules on the t10 foundation, using only the foundation's published images. A project made from it adds its modules in `modules/` and its own choices in `site/`; everything else comes from the template, so template updates merge cleanly.
 
-How to start a project from it is in [`docs/new-project.md`](docs/new-project.md), how to work in it in [`docs/guide.md`](docs/guide.md), why it's laid out this way in [`docs/design.md`](docs/design.md), what a module provides in [`docs/module.md`](docs/module.md), what's left to build in [`docs/plan.md`](docs/plan.md), and what the foundation should take back in [`docs/upstream.md`](docs/upstream.md).
+| Read | For |
+| --- | --- |
+| [`docs/new-project.md`](docs/new-project.md) | Starting a project, step by step, from cloning to a first deploy |
+| [`docs/module.md`](docs/module.md) | Building a module: what it provides, where its parts live, the loop while you work |
+| [`docs/guide.md`](docs/guide.md) | The reference: who owns what, the layout, commands, settings, secrets, the bundle |
+| [`CHANGELOG.md`](CHANGELOG.md) | The template's releases, and what a project does for each |
+| [`docs/design.md`](docs/design.md), [`docs/plan.md`](docs/plan.md), [`docs/upstream.md`](docs/upstream.md) | Why it's built this way, what's left to build, and what the foundation should take back |
 
 ## Start a project
 
@@ -14,21 +20,22 @@ The whole walk-through, from cloning to a first deploy, is [`docs/new-project.md
    cd myproject && git remote add origin <your project's repo>
    ```
    Set `PROJECT_NAME` and pick the foundation components in `site/config/settings.env`, and replace this README with your project's.
-2. Add each module: `make new-module ID=<id> SERVICE=<service> PORT=<port>` writes a working service in `src/<service>/` to build on, and `make test`, `make up` and `make smoke` check it. [`docs/module.md`](docs/module.md) is the contract.
+2. Add each module: `make new-module ID=<id>` writes a working service in `src/<id>/` to build on, and `make test`, `make up` and `make smoke` check it. [`docs/module.md`](docs/module.md) is how to build one.
 3. Note your project's plan and open questions in `site/docs/plan.md`.
-4. Later, `make template-update` merges the template's changes. Your `README.md`, `modules/`, `site/` and `src/` stay as they are; everything else comes from the template, so change it there, not in the project. `make check` warns about any template file edited in the project.
+4. Later, `make template-update` merges the template's latest release and prints what it asks of the project. Your `README.md`, `modules/`, `site/` and `src/` stay as they are; everything else comes from the template, so change it there, not in the project. `make check` warns about any template file edited in the project.
 
 ## Run it
 
 You need Docker with Compose 2.24 or later, and Python 3. With no module, it runs the foundation alone.
 
 ```sh
+make doctor                         # Docker, Compose, Python, free ports
 make up                             # pinned images; local secrets are made in site/secrets/local.env
 make seed-demo                      # sample accounts
 make smoke                          # end-to-end checks
 ```
 
-`make up` leaves `LLM_API_KEY` empty in `site/secrets/local.env` for an OpenAI-compatible key; with none, prefix each command with `SCRIPTED=1` to use a scripted model.
+`make up` leaves `LLM_API_KEY` empty in `site/secrets/local.env` for an OpenAI-compatible key; until it's set, every local command uses a scripted model.
 
 | Address | What |
 | --- | --- |
@@ -44,4 +51,4 @@ The ports are 38xxx and 37xxx, so this runs beside t10-quickstart. Override them
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE). A project made from the template keeps the template's files under it; its own `modules/`, `site/` and `src/` are licensed as the project chooses. Code `make new-module` writes into `src/` comes from the template's `scripts/scaffold/`, under the same license, and its `verifier/` from auth-server, also Apache 2.0.
+Licensed under the [Apache License, Version 2.0](LICENSE). A project made from the template keeps the template's files under it; its own `modules/`, `site/` and `src/` are licensed as the project chooses. Code `make new-module` writes into `src/` comes from the template's `scripts/scaffold/`, under the same license; the kit's `verifier/` comes from auth-server, also Apache 2.0.

@@ -1,10 +1,13 @@
-# Go's module and build caches persist between builds, so a rebuild compiles only what changed.
+# The module's image. go.mod reaches the template's kit as ../../kit/go, so the build keeps that
+# layout: Compose and the scripts pass kit/go/ as the build context `kit`.
 FROM golang:1.27.3-alpine AS build
-WORKDIR /src
+WORKDIR /w/src/module
 ENV CGO_ENABLED=0
+COPY --from=kit . /w/kit/go/
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
+# Go's module and build caches persist between builds, so a rebuild compiles only what changed.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
 	go build -trimpath -ldflags="-s -w" -o /out/__service__ .
 

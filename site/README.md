@@ -13,7 +13,6 @@ outside `site/` and `modules/` comes from the template and is never edited here.
 | `secrets.json` | Secrets this project adds, if any, in the same format as `foundation/secrets.json` |
 | `versions.env` | Optional: a pin this project needs to differ from `foundation/versions.env` or a module's, as a deliberate exception |
 | `docs/` | This project's own plan, decisions and open questions; how the template works is in `../docs/` |
-| `k8s/<env>/` | Kubernetes patches for one environment: replicas, resources, ingress class. Never settings |
 | `compose/<env>.yml` | Rarely: Compose changes for this project only, layered after the others |
 
 `make config-show SVC=<service>` shows which layer each value comes from.

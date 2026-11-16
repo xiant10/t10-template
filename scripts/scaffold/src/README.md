@@ -5,12 +5,15 @@ repo, and the project builds and runs it from here: its deployment is `modules/_
 
 | Path | Holds |
 | --- | --- |
-| `main.go` | Startup: settings from the environment, the database, the token verifier |
-| `server.go` | `/readyz`, `/v1/module` (the manifest workbench reads), `/v1/access` and the web app's page |
-| `auth.go` | Who a request is for: a person's own token, or an agent's delegated one, with their live standing |
-| `mcp.go`, `tools.go` | The agent tools at `/mcp`; add the module's own in `tools.go` |
-| `server_test.go` | Tests that need no running stack |
-| `verifier/` | auth-server's token verifier, copied (upstream U16) |
+| `main.go` | Startup: settings from the environment, the database, its access checks, and the module |
+| `server.go` | Its own routes beside the standard ones: the web app's page, and any API of its own |
+| `tools.go` | Its agent tools at `/mcp`; replace the example with the module's own |
+| `server_test.go` | Tests of its own tools and routes, with `module.Fake` for auth-server: no stack needed |
+| `go.mod` | Its dependencies, and the template's kit as `../../kit/go` |
+
+What every module answers (`/readyz`, `/v1/module`, `/v1/access`, the MCP protocol, and checking
+a person's or an agent's token against auth-server) comes from the template's kit,
+`t10kit/module` in `../../kit/go/`, and its tests are there.
 | `module/` | The pack: `module.env`, its permission catalog, its agent, its OAuth clients ([`docs/module.md`](../../docs/module.md)) |
 | `Dockerfile` | The image, with the pack at `/module`; its `test` stage runs vet and the tests |
 
@@ -23,6 +26,5 @@ make reload MODULE=__id__      # after a change: rebuild and restart it, and wha
 make smoke                     # the whole stack end to end, including this module's hooks
 ```
 
-A new tool needs an action its agent may use: add it to `GRANT_ACTIONS` in `module/module.env`,
-the catalog's `agent` block, the agent's `grants` and the runtimes in `module/clients.fragment.json`.
-`make check` names any place that's missing it.
+A new tool's action goes in one place, the `agent` block of `module/permissions/__id__.yaml`:
+the project gives it to the agent, its runtimes and the harnesses.
