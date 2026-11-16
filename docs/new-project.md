@@ -19,7 +19,7 @@ git remote add origin <your project's repo>
 git push -u origin main
 ```
 
-The template stays a remote named `template`, which `make template-update` merges from later. Don't fork it on GitHub and don't copy the files without git: either loses the shared history the updates rely on.
+The template stays a remote named `template`, which `make template-update` merges from later; your work goes to `origin`. Don't fork it on GitHub and don't copy the files without git: either loses the shared history the updates rely on. How the two stay apart is [`template-updates.md`](template-updates.md).
 
 ## 3. Name it and choose what runs
 
@@ -140,9 +140,7 @@ make template-update      # the latest release; README.md, modules/, site/ and s
 make check                # warns about any template file this project edited
 ```
 
-It prints what [`CHANGELOG.md`](../CHANGELOG.md) says about each release it brought in: do what its **In a project** notes say, then the full check in step 7. A conflict means the project edited a template file: move that change into `site/`, or propose it to the template.
-
-To move to newer foundation images, `make pin` shows what's new and `make pin WRITE=1` writes it. Prefer taking new pins through a template update, since the template's set is tested together.
+It prints what [`CHANGELOG.md`](../CHANGELOG.md) says about each release it brought in: do what its **In a project** notes say, then the full check in step 7. Conflicts, releasing a change from the template, and new foundation images are in [`template-updates.md`](template-updates.md).
 
 ## What's committed
 

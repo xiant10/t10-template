@@ -7,6 +7,7 @@ A starting point for a project that runs business modules on the t10 foundation,
 | [`docs/new-project.md`](docs/new-project.md) | Starting a project, step by step, from cloning to a first deploy |
 | [`docs/module.md`](docs/module.md) | Building a module: what it provides, where its parts live, the loop while you work |
 | [`docs/guide.md`](docs/guide.md) | The reference: who owns what, the layout, commands, settings, secrets, the bundle |
+| [`docs/template-updates.md`](docs/template-updates.md) | Keeping a project's own changes while taking the template's updates, and releasing them |
 | [`CHANGELOG.md`](CHANGELOG.md) | The template's releases, and what a project does for each |
 | [`docs/design.md`](docs/design.md), [`docs/plan.md`](docs/plan.md), [`docs/upstream.md`](docs/upstream.md) | Why it's built this way, what's left to build, and what the foundation should take back |
 

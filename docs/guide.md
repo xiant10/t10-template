@@ -160,7 +160,7 @@ make template-update      # the latest release; README.md, modules/, site/ and s
 make verify
 ```
 
-It prints what `CHANGELOG.md` says about each release it brought in; do what its **In a project** notes say. A conflict means the project edited a template file: move that change into `site/`, or propose it to the template. To move to newer foundation images, prefer a template release, since the template's set of pins is tested together; `make pin` shows what's newer.
+It prints what `CHANGELOG.md` says about each release it brought in; do what its **In a project** notes say. The whole practice (the two remotes, overriding instead of editing, conflicts, and releasing a template change) is [`template-updates.md`](template-updates.md).
 
 ## CI
 
