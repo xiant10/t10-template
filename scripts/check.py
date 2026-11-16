@@ -22,13 +22,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib  # noqa: E402
 
 ENV = os.environ.get("ENV", "local")
-failures = []
-
-
-def check(name, ok, detail=""):
-    print(f"{'ok  ' if ok else 'FAIL'} {name}" + (f"\n     {detail}" if detail and not ok else ""))
-    if not ok:
-        failures.append(name)
+check = lib.check
 
 
 def run(*cmd, **env):
@@ -91,5 +85,4 @@ if r.returncode == 0:
                       for v in s.get("volumes", []) if v.get("type") == "bind" and not v["source"].startswith(bundle)})
     check(f"generated/{ENV}/ mounts nothing from outside itself", not outside, "; ".join(outside))
 
-print(f"\n{len(failures)} failed" if failures else "\nall passed")
-sys.exit(1 if failures else 0)
+lib.finish()

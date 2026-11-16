@@ -33,3 +33,7 @@ It runs the whole foundation, the same services as t10-quickstart's `compose.all
 Sign in as `admin@acme.example`, with `AUTH_ADMIN_PASSWORD` from `site/secrets/local.env`. After `make seed-demo`, sample users are in tenant `ten_sample-acme` with password `t10-sample-password`.
 
 The ports are 38xxx and 37xxx, so this runs beside t10-quickstart. Override them in `site/config/local/settings.env`.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE). A project made from the template keeps the template's files under it; its own `modules/` and `site/` are licensed as the project chooses.

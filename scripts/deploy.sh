@@ -5,7 +5,7 @@
 #
 #   ENV=prod scripts/deploy.sh
 #
-# The host needs Docker with Compose 2.24 or later, rsync, and `docker login ghcr.io` for the
+# The host needs Docker with Compose 2.24 or later, rsync, and `docker login ghcr.io` for
 # any private module image. Nothing else from this repo goes there.
 set -eu
 cd "$(dirname "$0")/.."

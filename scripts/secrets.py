@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Secrets per environment, against foundation/secrets.json and each module's secrets.json.
+"""Secrets per environment, against the inventory: each part's secrets.json (lib.inventory).
 
     scripts/secrets.py init ENV          # add missing values to site/secrets/<env>.env; keeps existing ones
     scripts/secrets.py check ENV [--allow-empty=NAME,…]   # every required secret set, nothing unknown, no dev values in prod

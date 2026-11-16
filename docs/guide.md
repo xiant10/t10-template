@@ -19,6 +19,7 @@ Everything a part holds is layered the same way, foundation then modules then si
 ```text
 <project>/
 ├── README.md            the project: what it is, how to reach it                  project
+├── LICENSE              Apache 2.0, for the template's files                       template
 ├── Makefile  scripts/   what the commands run; lib.py finds the parts              template
 ├── docs/                how the template works: guide, design, module, plan, upstream  template
 ├── foundation/          the foundation's images, defaults only                    template

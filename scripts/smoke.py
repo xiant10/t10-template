@@ -41,13 +41,7 @@ AUTH = port("AUTH_PORT") if LOCAL else public("AUTH_PUBLIC_URL")
 # Caddy's own CA signs *.localhost, which a test of the dev shape on this machine uses.
 UNVERIFIED = ssl._create_unverified_context()
 MODULES = [(m, cfg[m["PUBLIC_URL_SETTING"]].rstrip("/"), folder) for folder, _, m in lib.modules()]
-failures = []
-
-
-def check(name, ok, detail=""):
-    print(f"{'ok  ' if ok else 'FAIL'} {name}" + (f": {detail}" if detail and not ok else ""))
-    if not ok:
-        failures.append(name)
+check = lib.check
 
 
 def http(url, token=None, data=None, form=None):
@@ -107,8 +101,7 @@ for name, url in up:
 if not LOCAL:
     status, body = http(AUTH + "/.well-known/jwks.json")
     check("auth-server serves its signing key at its public address", status == 200 and bool(body.get("keys")), f"{status} {body}")
-    print(f"\n{len(failures)} failed" if failures else "\nall passed (on a server: public addresses only)")
-    sys.exit(1 if failures else 0)
+    lib.finish(" (on a server: public addresses only)")
 
 # 2. Sign in.
 admin = os.environ.get("AUTH_SETUP_ADMIN", "admin@acme.example")
@@ -134,11 +127,10 @@ apps = [a["id"] for t in (body.get("workbench", {}).get("tenants", []) if status
 for m, _, _ in MODULES:
     check(f"auth-server lists the {m.get('AGENT_TITLE', m['MODULE_ID'])} app", m["MODULE_ID"] in apps, f"{status} {apps}")
 
-# 5. Every agent in the route document is reachable by name through ai-gateway-agent, which
-# only local publishes.
+# 5. Every agent in the route document is reachable by name through ai-gateway-agent.
 routes = json.loads((lib.GENERATED / ENV / "agent-routes.json").read_text())
-gateway = port("AGENT_GATEWAY_PORT") + "/agent" if LOCAL else None
-for agent in sorted(routes["agents"]) if LOCAL else []:
+gateway = port("AGENT_GATEWAY_PORT") + "/agent"
+for agent in sorted(routes["agents"]):
     req = urllib.request.Request(gateway, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "session.create", "params": {}}).encode(),
                                  headers={"Authorization": f"Bearer {token}", "content-type": "application/json",
                                           "Agent-Method": "session.create", "Agent-Name": agent})
@@ -162,5 +154,4 @@ if SCRIPTED:
                   "fetch('http://127.0.0.1:8080/seen').then(r=>r.text()).then(t=>process.stdout.write(t))").stdout
     check("no identity header reached the model", out.strip() == "[]", out)
 
-print(f"\n{len(failures)} failed" if failures else "\nall passed")
-sys.exit(1 if failures else 0)
+lib.finish()

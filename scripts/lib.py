@@ -14,9 +14,9 @@ Nothing outside modules/ and site/ names a module, so every project shares the r
 
 Inside each part, config/ and compose/ are layered by environment. The template ships three:
 
-    local    this machine: ports on 127.0.0.1, dev mode, DEV=1 and SCRIPTED=1
-    dev      a shared server: Caddy with TLS in front, dev mode on
-    prod     a server: Caddy with TLS in front, dev mode off
+    local    this machine: ports on 127.0.0.1, auth-server's dev mode, DEV=1 and SCRIPTED=1
+    dev      a shared server: Caddy with TLS in front, auth as in prod
+    prod     a server: Caddy with TLS in front, with prod's stricter secret checks
 
 dev and prod both build on a `server` layer, for what every server shares. Any other
 environment, such as uat, names the one it's like as SHAPE in site/config/<env>/settings.env,
@@ -174,7 +174,7 @@ def sources():
 
 
 def inventory():
-    """Every secret, from foundation/secrets.json and each module's."""
+    """Every secret, from each part's secrets.json: the foundation's, its components' that run, each module's."""
     out = []
     for part in parts():
         f = part / "secrets.json"
@@ -194,6 +194,22 @@ def compose_files(*names):
     """Each part's compose/<name>.yml that exists, name by name: compose_files("base", env) is
     every part's base.yml, then every part's <env>.yml."""
     return [p / "compose" / f"{name}.yml" for name in names for p in parts() if (p / "compose" / f"{name}.yml").exists()]
+
+
+_failures = []
+
+
+def check(name, ok, detail=""):
+    """One line of `make check` or `make smoke`: ok, or FAIL with why."""
+    print(f"{'ok  ' if ok else 'FAIL'} {name}" + (f"\n     {detail}" if detail and not ok else ""))
+    if not ok:
+        _failures.append(name)
+
+
+def finish(note=""):
+    """The summary after the checks, and the exit status: 1 if any failed."""
+    print(f"\n{len(_failures)} failed" if _failures else f"\nall passed{note}")
+    sys.exit(1 if _failures else 0)
 
 
 # What the deployment bundle copies from each part, beside what scripts/render.py writes.
