@@ -6,9 +6,15 @@ How to work in it is in [`docs/guide.md`](docs/guide.md), why it's laid out this
 
 ## Start a project
 
-1. Copy this repo, set `PROJECT_NAME` in `site/config/settings.env`, and replace this README with your project's.
+1. Clone it with the template as a remote named `template`, and give the project its own `origin`:
+   ```sh
+   git clone -o template https://github.com/xiant10/t10-template.git myproject
+   cd myproject && git remote add origin <your project's repo>
+   ```
+   Set `PROJECT_NAME` and pick the foundation components in `site/config/settings.env`, and replace this README with your project's.
 2. Add each module: `make new-module ID=<id> SERVICE=<service> PORT=<port> REPO=<url>`, then follow [`docs/module.md`](docs/module.md).
 3. Note your project's plan and open questions in `site/docs/plan.md`.
+4. Later, `make template-update` merges the template's changes. Your `README.md`, `modules/` and `site/` stay as they are; everything else comes from the template, so change it there, not in the project. `make check` warns about any template file edited in the project.
 
 ## Run it
 

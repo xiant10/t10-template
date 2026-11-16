@@ -11,6 +11,8 @@
 5. On a server (dev, prod, and any built on them), no setting is left TODO.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
    `make deploy` can copy it to a host as it is.
+7. In a project with a `template` git remote, a warning for each template file it edited,
+   since `make template-update` may conflict there. Never a failure.
 """
 import json
 import os
@@ -84,5 +86,12 @@ if r.returncode == 0:
     outside = sorted({f"{name}: {v['source']}" for name, s in json.loads(r.stdout)["services"].items()
                       for v in s.get("volumes", []) if v.get("type") == "bind" and not v["source"].startswith(bundle)})
     check(f"generated/{ENV}/ mounts nothing from outside itself", not outside, "; ".join(outside))
+
+# 7. Template files edited in this project.
+base = run("git", "merge-base", "HEAD", "template/main")
+if base.returncode == 0:
+    edited = run("git", "diff", "--name-only", base.stdout.strip(), "--", ".", ":!README.md", ":!modules", ":!site").stdout.split()
+    for f in edited:
+        print(f"warn {f} is a template file, edited here, so template updates may conflict: change it in the template instead, or for a setting, override it from site/")
 
 lib.finish()

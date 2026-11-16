@@ -10,7 +10,7 @@ export ENV DEV SCRIPTED MODULE IMAGE
 COMPOSE := scripts/compose.sh
 PY := python3 -I -B
 
-.PHONY: help clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check config-show routes-publish new-module sync-module pin rotate
+.PHONY: help clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check config-show routes-publish new-module template-update sync-module pin rotate
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -67,6 +67,9 @@ routes-publish: ## Publish generated/<env>/agent-routes.json to t10-agent-contro
 
 new-module: ## Make modules/<id>/ for a new module: ID=crm SERVICE=t10-crm PORT=18076 (REPO=…), see docs/module.md
 	@$(PY) scripts/new-module.py "$(ID)" "$(SERVICE)" "$(PORT)" $(REPO)
+
+template-update: ## Merge the template's latest (git remote template); README.md, modules/ and site/ stay yours
+	@scripts/template-update.sh
 
 sync-module: ## Copy a module's pack out of its pinned image into modules/<id>/pack/ (MODULE=<id>, IMAGE=…)
 	@scripts/sync-module.sh

@@ -14,7 +14,7 @@ A project is three kinds of part, layered in this order, later ones winning:
 | `modules/<id>/` | One business module: its image pin and source repo, Compose files, settings, secrets inventory, and the pack from its image | The project |
 | `site/` | This project's own choices: `PROJECT_NAME`, ports, public addresses, the deploy host, overrides of any setting or pin, and its secret values | The project |
 
-Everything a part holds is layered the same way, foundation then modules then site: `versions.env`, `secrets.json`, `config/`, `compose/` and `k8s/`. A project changes only `modules/`, `site/` and its `README.md`. Everything else comes from the template and is changed there, so every project gets the change and template updates merge cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file.
+Everything a part holds is layered the same way, foundation then modules then site: `versions.env`, `secrets.json`, `config/`, `compose/` and `k8s/`. A project changes only `modules/`, `site/` and its `README.md`. Everything else comes from the template and is changed there, so every project gets the change and template updates merge cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. A project follows the template as a git remote named `template`: `make template-update` merges it and keeps the project's own paths as they are, and `make check` warns about any template file edited in the project.
 
 ```text
 <project>/
@@ -97,6 +97,7 @@ Each environment says what runs it in `TARGET`: `compose` today, `k8s` once it's
 | `make pin` (`WRITE=1`) | What each foundation image's `latest` is, and optionally pin it in the `versions.env` that wins for it |
 | `make secrets-init` | Add missing secrets to `site/secrets/<env>.env`, keeping existing ones (`ENV=` for a server) |
 | `make new-module ID=<id> SERVICE=… PORT=…` | Write `modules/<id>/` for a new module ([`module.md`](module.md)) |
+| `make template-update` | Merge the template's latest from the `template` git remote, keeping `README.md`, `modules/` and `site/` as they are |
 | `make sync-module MODULE=<id>` | Copy a module's pack out of its pinned image into `modules/<id>/pack/` |
 | `make routes-publish` | Publish the route document again after an agent changes |
 | `make rotate NAME=…` | How to rotate one secret |
