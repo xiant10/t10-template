@@ -27,5 +27,6 @@ folder and layered right after it.
 | `config/<service>/` | Config files mounted into it, such as `ai-gateway-llm/config.yaml` |
 | `config/settings.env` | `TARGET=compose`, for every environment |
 | `config/local/settings.env` | Default ports and addresses on this machine |
+| `config/k8s-local/settings.env` | The `k8s-local` environment: `SHAPE=local`, `TARGET=k8s`, its kubectl context, and ports beside `local`'s |
 | `config/server/settings.env` | What every server must decide, as `TODO`: addresses and the deploy host |
 | `config/<layer>/<service>.env` | A service's settings in some environments, over `config/<service>.env`: `local/auth-server.env` turns on dev mode, `server/auth-server.env` trusts Caddy's forwarded headers |

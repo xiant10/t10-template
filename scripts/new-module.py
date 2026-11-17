@@ -9,7 +9,7 @@ ID is the module's MODULE_ID. SERVICE, its Compose service and auth-server accou
 unless given; PORT, the port it listens on in its container, is the next one no module uses from
 18100. Every other name follows from these: its image is T10_<ID>, its settings and secrets
 start with <ID>_, its agent is <id> on agent-ti with the account agent-ti-<id>, and it's
-published locally on PORT + 20000.
+published locally on PORT + 20000 (on k8s-local, PORT + 18000).
 
 How it plugs into the foundation isn't written here: scripts/render.py works that out from its
 module.env on every run (scripts/wiring.py), so a template update reaches every module. Its
@@ -40,7 +40,7 @@ what's particular to it ([`docs/module.md`](../../docs/module.md)).
 | Path | Holds |
 | --- | --- |
 | `source.env`, `versions.env` | Where its code is, and its image on servers, `T10_{U}` |
-| `config/{service}.env` | Its service's settings; `config/local/` and `config/server/` per layer |
+| `config/{service}.env` | Its service's settings; `config/local/`, `config/k8s-local/` and `config/server/` per layer |
 {rows}""",
     "versions.env": """\
 {versions_comment}
@@ -57,6 +57,11 @@ LISTEN_ADDR=:{port}
 # {Id} in the local environment.
 {U}_PUBLIC_URL=http://127.0.0.1:{local_port}
 {U}_PORT={local_port}
+""",
+    "config/k8s-local/settings.env": """\
+# {Id} on k8s-local, this machine's Kubernetes, beside local.
+{U}_PUBLIC_URL=http://127.0.0.1:{k8s_port}
+{U}_PORT={k8s_port}
 """,
     "config/server/settings.env": """\
 # {Id} on a server (dev, prod). `make check` fails while any value is TODO: set it in
@@ -123,13 +128,14 @@ def scaffold_src(dest, names):
 
 
 def free_port():
-    """The first port from FIRST_PORT that no module listens on, nor publishes 20000 above."""
+    """The first port from FIRST_PORT that no module listens on, nor publishes 20000 or 18000 above."""
     used = set()
     for folder in sorted(lib.MODULES.iterdir()) if lib.MODULES.exists() else []:
         used.add(lib.read_env(lib.pack_of(folder) / "module.env").get("PORT", ""))
-        used |= {v for k, v in lib.read_env(folder / "config" / "local" / "settings.env").items() if k.endswith("_PORT")}
+        for layer in ("local", "k8s-local"):
+            used |= {v for k, v in lib.read_env(folder / "config" / layer / "settings.env").items() if k.endswith("_PORT")}
     port = FIRST_PORT
-    while str(port) in used or str(port + 20000) in used:
+    while str(port) in used or str(port + 20000) in used or str(port + 18000) in used:
         port += 1
     return str(port)
 
@@ -158,7 +164,7 @@ def main(argv):
         sys.exit(f"src/{src_name} already exists")
     u = mid.upper().replace("-", "_")
     names = dict(id=mid, Id=mid.replace("-", " ").title(), U=u, service=service, port=port,
-                 local_port=int(port) + 20000, src=src_name, repo=repo)
+                 local_port=int(port) + 20000, k8s_port=int(port) + 18000, src=src_name, repo=repo)
     names.update({k: v.format(**names) for k, v in (IN_PROJECT if in_project else OWN_REPO).items()})
     for path, text in {**FILES, **(EXTRA_IN_PROJECT if in_project else {})}.items():
         f = folder / path.format(**names)

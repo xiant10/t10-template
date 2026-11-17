@@ -139,7 +139,7 @@ class NewModule(TestCase):
     def test_writes_only_what_is_particular_to_it(self):
         self.p.new_module("crm")
         files = sorted(str(f.relative_to(self.p.dir / "modules" / "crm")) for f in (self.p.dir / "modules" / "crm").rglob("*") if f.is_file())
-        self.assertEqual(files, ["README.md", "compose/scripted.yml", "config/local/settings.env", "config/server/settings.env",
+        self.assertEqual(files, ["README.md", "compose/scripted.yml", "config/k8s-local/settings.env", "config/local/settings.env", "config/server/settings.env",
                                  "config/t10-crm.env", "source.env", "versions.env"])
         self.assertEqual(self.p.read("modules/crm/source.env").split("SRC=")[1].strip(), "crm")
         self.assertIn("PORT=18100", self.p.read("src/crm/module/module.env"))
@@ -238,6 +238,69 @@ class StandardWiring(TestCase):
     def test_check_passes(self):
         self.p.secrets()
         r = self.p.run(*PY, "scripts/check.py", check=False, SCRIPTED="1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+@unittest.skipUnless(DOCKER, "needs docker, for docker compose config")
+class Kubernetes(TestCase):
+    """k8s-local's objects, written by scripts/kube.py from the Compose bundle; no cluster needed."""
+
+    def setUp(self):
+        super().setUp()
+        self.p.new_module("crm")
+        self.p.secrets("k8s-local")
+        self.bundle = self.p.render("k8s-local")
+
+    def objects(self, service):
+        """A service's objects, by kind, as kube.py makes them before writing them as YAML."""
+        code = ("import json, sys; sys.path.insert(0, 'scripts'); import kube; "
+                f"print(json.dumps(kube.manifests('k8s-local')[0]['k8s/{service}.yaml']))")
+        return {f"{o['kind']}/{o['metadata']['name']}": o for o in json.loads(self.p.run(*PY, "-c", code, ENV="k8s-local").stdout)}
+
+    def test_each_service_as_its_kind(self):
+        crm = self.objects("t10-crm")
+        container = crm["Deployment/t10-crm"]["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container["imagePullPolicy"], "Never")
+        self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
+        # Headless: the name resolves to the pod, so any port answers, as on Compose's network.
+        self.assertEqual(crm["Service/t10-crm"]["spec"]["clusterIP"], "None")
+        self.assertEqual(crm["Service/t10-crm-public"]["spec"]["ports"][0]["port"], 36100)
+        self.assertEqual(set(self.objects("crm-db")), {"Job/crm-db"})
+        self.assertEqual(set(self.objects("seed")), {"Job/seed"})
+
+    def test_published_on_its_own_ports(self):
+        text = (self.bundle / "k8s" / "t10-crm.yaml").read_text()
+        self.assertIn("name: t10-crm-public", text)
+        self.assertIn("port: 36100", text)
+        self.assertIn("http://localhost:36081", (self.bundle / "k8s" / "auth-server.yaml").read_text())
+
+    def test_no_secret_on_disk(self):
+        written = "".join(f.read_text() for f in [self.bundle / "kustomization.yaml", *(self.bundle / "k8s").glob("*.yaml")])
+        self.assertNotIn("S_CRM_DB_PASSWORD", written)
+        self.assertIn("name: t10-crm-secrets", written)
+        code = ("import json, sys; sys.path.insert(0, 'scripts'); import kube; "
+                "print(json.dumps(kube.secrets('k8s-local', kube.compose_config('k8s-local'))))")
+        made = {s["metadata"]["name"]: s["stringData"] for s in json.loads(self.p.run(*PY, "-c", code, ENV="k8s-local").stdout)}
+        self.assertIn("S_CRM_DB_PASSWORD", made["t10-crm-secrets"]["DATABASE_URL"])
+
+    def test_agent_folder_mounted_from_a_config_map(self):
+        spec = self.objects("t10-agents")["Job/t10-agents"]["spec"]["template"]["spec"]
+        items = {i["path"] for v in spec["volumes"] if "configMap" in v for i in v["configMap"]["items"]}
+        self.assertIn("agent.json", items)
+        self.assertIn("files-modules-crm-pack-agents-crm", (self.bundle / "kustomization.yaml").read_text())
+
+    def test_local_has_none(self):
+        self.assertFalse((self.p.render("local") / "kustomization.yaml").exists())
+
+    def test_a_server_cluster_is_refused(self):
+        self.p.write("site/config/dev/settings.env", self.p.read("site/config/dev/settings.env") + "TARGET=k8s\n")
+        r = self.p.run(*PY, "scripts/render.py", "dev", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("SHAPE=local", r.stderr)
+
+    @unittest.skipUnless(shutil.which("kubectl"), "needs kubectl")
+    def test_check_passes(self):
+        r = self.p.run(*PY, "scripts/check.py", check=False, ENV="k8s-local", SCRIPTED="1")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
 

@@ -19,7 +19,7 @@ A project made from this template deploys one or more business modules on the t1
 
 - **Foundation as images.** Every foundation service comes from `ghcr.io/xiant10/*` at a pinned tag. Upgrading the foundation means changing a version file.
 - **The module owns its integration.** A module's permissions, OAuth clients, agent, tool routes and database live in its image and its folder. They aren't stored in `t10-agents`, the workspace's `deploy/k8s/catalog/` or `auth-setup`.
-- **One description, two targets.** Docker Compose for development, demos and a small team's prod, and Kubernetes (kustomize) for real clusters. Both use the same images and the same module files. Compose is built; Kubernetes is planned.
+- **One description, two targets.** Docker Compose for development, demos and a small team's prod, and Kubernetes for real clusters. Kubernetes is made from Compose's resolved config (`scripts/kube.py`), so both run the same images, settings, secrets and module files. Both are built on this machine; a server cluster is planned.
 - **Repeatable.** A new module adds a `modules/<id>/` folder and gets the same commands. A new project starts from the template and adds its modules and `site/`.
 
 Not a goal: changing how the foundation works. If something can't be done through configuration, it goes on `upstream.md` instead of being patched.
@@ -128,16 +128,16 @@ T10_CRM=ghcr.io/xiant10/t10-crm:…
 
 Three things are kept apart:
 
-- **The target** runs an environment: Docker Compose (built) or Kubernetes (planned). It's `TARGET` in the settings.
+- **The target** runs an environment: Docker Compose, or Kubernetes made from the same Compose bundle. It's `TARGET` in the settings.
 - **The environment** is a name (`local`, `dev`, `prod`, later `uat`…) with its own values and secrets. The project owns it, in `site/config/<env>/`.
 - **The layers** are what the template ships for kinds of environment, in each part's `config/` and `compose/`: `local` for this machine, `server` for every server, and `dev` and `prod` on top of `server`. An environment named `local`, `dev` or `prod` uses those; any other names one as `SHAPE` and adds its own layer.
 
 | | `local` | `dev`, `prod` (and `uat`…) |
 | --- | --- | --- |
 | **Compose** | Built. Ports on `127.0.0.1`, dev mode | Built. One host per environment (or several, one Compose project each), Caddy with TLS in front, Postgres in Compose; `make deploy` copies the bundle there |
-| **Kubernetes** | Planned: Docker Desktop, to test the manifests | Planned: a remote cluster, ingress with cert-manager, Postgres in the cluster |
+| **Kubernetes** | Built: `k8s-local`, on Docker Desktop, in a namespace of its own | Planned: a remote cluster, ingress with cert-manager, Postgres in the cluster (`plan.md` E5) |
 
-What an environment runs is the same across targets: the merged `env/<service>.env`, the secrets, and what's merged from the packs. Only the wiring differs, and each target is checked by the same `make check` and `make smoke`. The target-neutral parts, and what still has to move out of Compose before Kubernetes, are in `plan.md`.
+What an environment runs is the same across targets: the merged `env/<service>.env`, the secrets, and what's merged from the packs. Only the wiring differs, and Kubernetes' is made from Compose's, so each target is checked by the same `make check` and `make smoke`. What a server cluster still needs is in `plan.md`.
 
 **Dev mode is localhost only.** auth-server refuses `AUTH_DEV_MODE` unless its issuer is `localhost`, so `dev` runs auth exactly as `prod` does: signing keys required, no password grant, no sample accounts, no WeChat demo login. `dev` exists as its own layer so a shared server can differ from prod where that's safe, and so `prod`'s secret checks (no dev defaults, nothing equal to local) stay strict. U14 asks the foundation for a server-safe sign-in for checks and demo data.
 
@@ -208,7 +208,7 @@ Because `environment:` would override every env file, it keeps only wiring: serv
 
 How to work with them is in [`guide.md`](guide.md#secrets); why they're built this way:
 
-- **Each service sees only its own.** A secret's `env` in the inventory names the services that get it and the variable, so `render.py` writes one `secrets/<service>.env` per service, and Compose files hold only wiring. The same per-service files become one Kubernetes `Secret` per service later.
+- **Each service sees only its own.** A secret's `env` in the inventory names the services that get it and the variable, so `render.py` writes one `secrets/<service>.env` per service, and Compose files hold only wiring. On Kubernetes, the same values become one `Secret` per service, made in memory.
 - **SOPS with age, in the repo** (decided Nov 15): one encrypted file per server environment, committed, which works offline, needs no service, and feeds Compose now and Kubernetes later. Whoever deploys needs an age key, and there's no automatic rotation. External Secrets would replace it once there's a cloud secret manager, keeping the same names.
 - **Decrypted only in memory.** Commands read a server's values through `sops decrypt` into memory (`lib.secrets_text`); its bundle holds them only while Compose runs here or `make deploy` copies it, so the host is the only place they're on disk.
 - **Rotation is described per secret** (`rotation`), so `make rotate APPLY=1` does the safe kinds (a new value, auth-server's two-phase account secrets, the signing key's `NEXT`) and prints the steps for the rest, such as a provider's key or the Postgres password.

@@ -4,6 +4,18 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.5.0 (Nov 16, 2026)
+
+Kubernetes on this machine ([`docs/guide.md`](docs/guide.md#kubernetes-on-this-machine)).
+
+- **`ENV=k8s-local`** runs the whole stack on this machine's Kubernetes, such as Docker Desktop's: `make up`, `seed-demo`, `smoke`, `check`, `verify`, `reload`, `ps` and `logs` work as on `local`. It's in a namespace of its own, `<PROJECT_NAME>-k8s-local`, on ports 36xxx and 35xxx, so it runs beside `local` and beside a workspace's own cluster deployment.
+- **Made from Compose.** `TARGET=k8s` has `scripts/kube.py` turn `docker compose config` on the bundle into Kubernetes objects (`generated/<env>/kustomization.yaml`, `k8s/`), so nothing is written twice. Secrets become one Secret per service, made in memory, never on disk. `make check` builds the objects with kustomize and checks no secret is in them.
+- A part's `k8s/<layer>/` is a kustomize component for what's particular to Kubernetes.
+- `make new-module` gives a module a k8s-local port, `PORT` + 18000.
+- The scripted model is on by itself on any local-shaped environment without `LLM_API_KEY`, not just `local`.
+
+**In a project:** to run `k8s-local` with a module made before this release, give it a port that doesn't clash with `local`'s: `modules/<id>/config/k8s-local/settings.env` with `<ID>_PORT` and `<ID>_PUBLIC_URL` on `PORT` + 18000, as `make new-module` now writes. Without it, `k8s-local` uses the module's `local` port, which works while `local` isn't running. A project with its own `site/config/k8s-local/` isn't affected otherwise.
+
 ## v0.4.0 (Nov 16, 2026)
 
 Running a server ([`docs/guide.md`](docs/guide.md#running-a-server)).

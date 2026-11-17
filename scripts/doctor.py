@@ -3,7 +3,7 @@
 
 Docker running, Compose 2.24 or later, Python 3.9 or later, the `template` git remote that
 `make template-update` merges from, and, while the stack isn't running, that each local port is
-free.
+free. With TARGET=k8s (ENV=k8s-local), also kubectl and its KUBE_CONTEXT answering.
 """
 import os
 import pathlib
@@ -37,9 +37,20 @@ origin = run("git", "remote", "get-url", "origin").stdout.strip()
 if r.returncode != 0 and not re.search(r"/t10-template(\.git)?$", origin):  # the template itself has none
     print("warn no git remote named template, so `make template-update` can't run: git remote add template <template repo>")
 
+K8S = lib.target(ENV) == "k8s"
+if K8S:
+    context = lib.settings(ENV).get("KUBE_CONTEXT", "")
+    r = run("kubectl", "--context", context, "get", "--raw", "/readyz")
+    check(f"kubectl reaches the {context} cluster", r.returncode == 0,
+          (r.stderr or r.stdout).strip()[-300:] + "; on Docker Desktop, turn on Kubernetes in its settings")
+
 if lib.shape(ENV) == "local":
     project = f"{lib.settings(ENV).get('PROJECT_NAME')}-{ENV}"
-    running = run("docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={project}").stdout.strip()
+    if K8S:
+        import kube
+        running = run("kubectl", "--context", context, "-n", kube.namespace(ENV), "get", "pods", "-o", "name").stdout.strip()
+    else:
+        running = run("docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={project}").stdout.strip()
     if running:
         print(f"skip ports: {ENV} is running")
     else:

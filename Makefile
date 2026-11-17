@@ -1,15 +1,15 @@
 # A project on the published t10 foundation images: foundation/, modules/<id>/ and site/.
 # See README.md.
 #
-# ENV=local (default), dev, prod, or another in site/config/. A module whose code is in src/ is
-# always built from there on local; DEV=1 also builds each module in a repo of its own from its
-# checkout in src/ (local only).
-# SCRIPTED=1 uses a scripted model, so nothing needs LLM_API_KEY. On local it's on by itself
-# while site/secrets/local.env has no LLM_API_KEY; SCRIPTED= (empty) turns it off.
+# ENV=local (default), dev, prod, k8s-local (local on this machine's Kubernetes), or another in
+# site/config/. A module whose code is in src/ is always built from there on local and k8s-local;
+# DEV=1 also builds each module in a repo of its own from its checkout in src/ (local only).
+# SCRIPTED=1 uses a scripted model, so nothing needs LLM_API_KEY. On local and k8s-local it's on
+# by itself while site/secrets/<env>.env has no LLM_API_KEY; SCRIPTED= (empty) turns it off.
 
 ENV ?= local
-ifeq ($(ENV),local)
-SCRIPTED ?= $(if $(shell sed -n 's/^LLM_API_KEY=..*/x/p' site/secrets/local.env 2>/dev/null),,1)
+ifeq ($(shell python3 -I -B scripts/lib.py shape $(ENV) 2>/dev/null),local)
+SCRIPTED ?= $(if $(shell sed -n 's/^LLM_API_KEY=..*/x/p' site/secrets/$(ENV).env 2>/dev/null),,1)
 endif
 export ENV DEV SCRIPTED MODULE IMAGE CONFIRM
 COMPOSE := scripts/compose.sh
@@ -23,7 +23,7 @@ SHELLCHECK := koalaman/shellcheck:v0.10.0
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
-doctor: ## Whether this machine can run the project: Docker, Compose, Python, free ports
+doctor: ## Whether this machine can run the project: Docker, Compose, Python, free ports (and kubectl, for k8s-local)
 	@$(PY) scripts/doctor.py
 
 clone: ## Clone each module that has a repo of its own (its source.env) into src/, kept out of git

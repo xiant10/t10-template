@@ -38,11 +38,13 @@ and the foundation runtimes its runtime_grants names in clients.yaml, and its ag
                        what each component's component.env adds, then each module's
     Caddyfile          on a server (dev, prod): one site per public address, from each part's
                        public.json and each module's PUBLIC_URL_SETTING, proxied to its service
+    kustomization.yaml, k8s/
+                       with TARGET=k8s, the same services as Kubernetes objects (scripts/kube.py)
 
 Files are rewritten in place and folders kept, so running containers see changes through their
 bind mounts. Anything else in the folder is removed, so it holds exactly what's listed.
 
-Addresses in modules.env are Compose service names; Kubernetes will have its own.
+Addresses in modules.env are Compose service names, which are Kubernetes Service names too.
 upstream U3: clients.yaml merging goes away once auth-server reads one file per module.
 upstream U7: the foundation would read the catalogs' agent blocks itself.
 """
@@ -55,6 +57,7 @@ import sys
 import urllib.parse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import kube  # noqa: E402
 import lib  # noqa: E402
 import wiring  # noqa: E402
 
@@ -280,8 +283,7 @@ def caddyfile(settings):
 
 def main(env_name):
     settings = lib.settings(env_name)
-    if settings.get("TARGET", "compose") != "compose":
-        raise SystemExit(f"{env_name}: TARGET={settings['TARGET']} isn't built yet, only compose (docs/plan.md)")
+    target = lib.target(env_name)
     values = {**settings, **lib.secret_values(env_name)}
     raw = lib.secret_values(env_name, raw=True)
     # A server's secrets go in its bundle only while a command needs them (scripts/compose.sh,
@@ -393,6 +395,11 @@ def main(env_name):
     if lib.shape(env_name) != "local":
         files["Caddyfile"] = (caddyfile(settings), 0o644)
     mirror(files, out)
+    # On Kubernetes, the same services as its objects, from Compose's view of what's above.
+    if target == "k8s":
+        k8s = kube.write(env_name)
+        write(out / "kustomization.yaml", k8s.pop("kustomization.yaml"))
+        mirror({rel.removeprefix("k8s/"): (data, 0o644) for rel, data in k8s.items()}, out / "k8s")
 
 
 if __name__ == "__main__":

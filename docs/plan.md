@@ -19,40 +19,33 @@ Each phase builds on the one before: the structure every later step lands in, th
 | D1 | Postgres backups (a `backup` service, `make backup`, `backup-pull` encrypted for the age keys, `restore`, tested end to end), rotated logs and a memory limit for every service on a server (`make check` enforces it), a volume for the model gateway's audit, server commands run on the host over SSH (`DEPLOY_SSH`), `make down-all` on a server needs `CONFIRM`. A full deploy rehearsed against a throwaway host with its own Docker. Still open: a smoke sign-in on servers (U14) | Done Nov 16 |
 | D2 | The first real `dev` host: `make deploy ENV=dev`, `make smoke ENV=dev` | Not started. Needs a host (`site/docs/plan.md`) |
 | **E. Kubernetes** | Once Compose on a server isn't enough | |
-| E1 | The module lists (`TOOL_SERVERS`, `GRANT_*`, …) move from `foundation/compose/base.yml` into `config/`, with `render.py` appending each module's, so both targets read them | Not started |
-| E2 | `make vendor` | Not started |
-| E3 | `foundation/k8s/` base and a component per layer, each module's component (generated, like its Compose wiring), `render.py` writing `generated/<env>/` as a kustomize folder, `TARGET=k8s` | Not started (the empty skeleton was removed in v0.1.0) |
-| E4 | A `k8s-local` environment on Docker Desktop passes `make check` and `make smoke` | Not started |
-| E5 | A cluster, with Postgres in the cluster | Not started |
+| E1–E4 | `TARGET=k8s` and the `k8s-local` environment: `scripts/kube.py` makes the Kubernetes objects from Compose's resolved config, so the module lists stay where they are (E1) and nothing is vendored (E2), as decided Nov 16 ([below](#kubernetes-e)). On Docker Desktop, `make up`, `seed-demo`, `check`, `smoke` and `reload` pass for the foundation alone and with a scaffolded module, beside the Compose stack and the workspace's `t10` namespace | Done Nov 16 |
+| E5 | A server cluster: [below](#a-server-cluster-e5) | Not started |
 | **F. Ongoing** | `upstream.md` items; projects pin their modules once their images have packs | |
 
 
 ## Kubernetes (E)
 
-The foundation's manifests live in each foundation repo's `deploy/k8s`, and the workspace's base reaches them as sibling folders (`../../../auth-server/deploy/k8s/base`). We can't do that without checkouts. Instead:
+### Decided Nov 16: made from Compose, not vendored
 
-1. **`make vendor`** copies each foundation repo's `deploy/k8s` into `foundation/k8s/vendor/<repo>/`, at the commit that repo's pinned image tag names (`sha-<commit>` in `versions.env`), for example with `git archive` from GitHub. The files are committed, never edited by hand, and their diff shows up on every upgrade.
-2. **`foundation/k8s/`** is our copy of the workspace's `deploy/k8s/base`, minus any module, pointing at `vendor/`. Its `images:` block maps each local image name (`auth-server:latest`, …) to the pin from `versions.env`.
-3. **Each module's component** is generated from its `module.env`, as its Compose wiring is (`scripts/wiring.py`), with `modules/<id>/k8s/` only for what's particular to it. A kustomize Component, so an overlay adds a module with one line:
-   - its Deployment and Service (vendored from its repo's `deploy/k8s`, image pinned),
-   - a `configMapGenerator` merging `<id>.yaml` into `auth-server-permissions` and `<id>=…` into `workbench-modules` (`MODULES_DIR`), as the workspace's `catalog/` does today,
-   - a ConfigMap of the agent folder, and a patch adding an init container to `agent-ti` that copies it into the agents emptyDir after `t10-agents`,
-   - patches for `GRANT_*` on the harnesses, `TOOL_SERVERS` and `TOOL_MODULE_SERVERS` on ai-gateway-tools, its route, and NetworkPolicy rules letting its service reach `ai-gateway-agent` and `ai-gateway-tools` reach it,
-   - Jobs: `<id>-db` creates the database and login, and `<id>-accounts` runs `authctl service-add`. Both are idempotent and run as hooks, or with `make k8s-seed`.
-4. **Layers, as on Compose.** An environment with `TARGET=k8s` (for example `k8s-local` with `SHAPE=local`, or a cluster's `prod`) gets a component per layer: `foundation/k8s/local/` for Docker Desktop (LoadBalancer services and dev mode, adapted from the workspace's `overlays/local`) and `foundation/k8s/server/` (ingress with cert-manager for each public address, real issuer URLs, replicas and disruption budgets, starting from `auth-server`'s vendored `overlays/production`). Postgres runs in the cluster in every environment for now, as decided Nov 16: a StatefulSet with a volume, and a backup CronJob. `render.py` writes `generated/<env>/kustomization.yaml` from these, the modules' components and `site/k8s/<env>/` patches, and `make up` and `make deploy` run `kubectl --context $KUBE_CONTEXT apply -k` on it, pruning only this project's objects.
-5. **Pull secrets.** The foundation images are public and need none. A private module image, such as `t10-property`'s, needs its `k8s/` to give that pod `imagePullSecrets: [{name: ghcr}]`, made from `GHCR_PULL_TOKEN`. `k8s/components/pull-secret/` does the same for every pod's ServiceAccount, so an overlay can turn it on with one line if foundation images go private.
+The first plan was to vendor each foundation repo's `deploy/k8s` at its pinned commit and layer kustomize components over it. Building E3 found two problems with that:
 
-### Settings in Kubernetes
+- The foundation's manifests hard-code the `t10` namespace and `*.t10.svc.cluster.local` addresses in their defaults. A project in its own namespace would reach the workspace's services wherever a default isn't overridden, without an error; in the `t10` namespace it would replace them. On this machine the workspace's whole stack already runs there.
+- Their settings, secrets and setup differ from the template's Compose stack, service by service. Keeping both meant every setting, secret and module wiring twice, with `make smoke` testing only one of them.
 
-`render.py` turns each service's merged `generated/<env>/env/<service>.env`, the same file Compose reads, into one patch that sets those variables on its container. It uses `env:` rather than a ConfigMap merge because the vendored manifests mix `env:` and `envFrom:`, and an explicit `env:` entry wins over both. Files in `config/<svc>/` become a `configMapGenerator` plus a volume patch. Generated ConfigMap names carry a content hash, so a change rolls the pods that use it. The exception is `workbench-modules`, which `workbench` re-reads without a restart. Replicas, resources and probes are ordinary kustomize patches in the overlay (`k8s/<env>/patches/`).
+So `scripts/kube.py` makes the objects from `docker compose config` on the bundle `render.py` already writes: the same images, settings, secrets, mounts, health checks and order, in a namespace of its own ([`guide.md`](guide.md#kubernetes-on-this-machine)). One description stays one description, and what Kubernetes runs is what the gates test. E1 (moving the module lists out of Compose) and E2 (`make vendor`) aren't needed. What's given up: the foundation's own replica counts, disruption budgets and NetworkPolicies, which a server cluster adds back in E5, as kustomize components of its own.
 
-Commands that come with it:
+### A server cluster (E5)
 
-| Command | Does |
-| --- | --- |
-| `make config-show SVC=… ENV=prod` | As today, and for Kubernetes |
-| `make config-diff ENV=…` | What changed compared with what's running: `docker compose config`, or `kubectl diff -k` |
-| `make check` | Also: `kustomize build` succeeds for each overlay, and every variable in `config/` is either known for that service (taken from the vendored manifests) or marked `# custom: <reason>`, which catches typos a service would ignore. Exact once U9 lands |
+What's left before `TARGET=k8s` on a `dev` or `prod` shape:
+
+- **Secrets**, decrypted in memory from `<env>.enc.env` straight into `kubectl apply`, as `make up` already does for `k8s-local`; nothing to change but allowing the shape.
+- **Ingress** with cert-manager for each public address, from the same `public.json` files Caddy reads, in place of the LoadBalancer Services.
+- **More than one node.** A volume shared by two services (`agents`, written by `t10-agents` and read by `agent-ti`) needs ReadWriteMany or a different hand-off; one replica per Deployment until each service says it can run more.
+- **Limits and policies:** resources from `MEM_LIMIT`, NetworkPolicies, disruption budgets, as a `foundation/k8s/server/` component.
+- **Images from the registry:** modules from `make release`, with a pull secret for a private one.
+- **Postgres in the cluster** with a backup CronJob, as decided Nov 16, or a managed one.
+- **`make deploy ENV=<env>`** applying to `KUBE_CONTEXT` instead of copying over SSH, and `make smoke` through the ingress.
 
 ## Production secrets (C)
 

@@ -13,7 +13,8 @@
    module built from src/ needs `make release` first.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
    `make deploy` can copy it to a host as it is. On a server, every service rotates its logs and
-   has a memory limit.
+   has a memory limit. With TARGET=k8s, its Kubernetes objects build with kustomize, and no
+   secret's value is in them (scripts/kube.py).
 7. In a project with a `template` git remote, a warning for each template file it edited,
    since `make template-update` may conflict there. Never a failure.
 """
@@ -21,6 +22,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -136,6 +138,14 @@ if r.returncode == 0:
                       if not s.get("mem_limit") or not s.get("logging", {}).get("options", {}).get("max-size"))
         check(f"every service on {ENV} rotates its logs and has a memory limit", not bare,
               "add them in that part's compose/server.yml, as foundation/compose/server.yml does: " + ", ".join(bare))
+
+if lib.target(ENV) == "k8s":
+    r = run("kubectl", "kustomize", f"generated/{ENV}") if shutil.which("kubectl") else None
+    check("the Kubernetes objects build", r is not None and r.returncode == 0,
+          "needs kubectl" if r is None else r.stderr.strip()[-400:])
+    if r is not None and r.returncode == 0:
+        leaked = sorted(k for k, v in lib.secret_values(ENV).items() if len(v) >= 8 and v in r.stdout)
+        check("no secret's value is in them", not leaked, ", ".join(leaked))
 
 # 7. Template files edited in this project.
 base = run("git", "merge-base", "HEAD", "template/main")

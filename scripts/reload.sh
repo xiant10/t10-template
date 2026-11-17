@@ -1,7 +1,7 @@
 #!/bin/sh
-# After changing a module built from src/, on local: rebuilds its image and restarts it. When
-# its pack (src/<SRC>/module/) changed since the last reload, also restarts what reads the pack
-# at start: auth-server (its catalog and clients), and t10-agents and agent-ti (its agent).
+# After changing a module built from src/, on local or k8s-local: rebuilds its image and restarts
+# it. When its pack (src/<SRC>/module/) changed since the last reload, also restarts what reads
+# the pack at start: auth-server (its catalog and clients), and t10-agents and agent-ti (its agent).
 #
 #   MODULE=<id> scripts/reload.sh
 set -eu

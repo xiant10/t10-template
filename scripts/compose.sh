@@ -8,6 +8,7 @@
 #                                            # (make turns it on by itself on local while there's no LLM_API_KEY)
 #   ENV=dev scripts/compose.sh config         # any environment: local, dev, prod, or one in site/config/
 #   ENV=prod scripts/compose.sh logs -f auth-server   # a server's: run on its host, over SSH
+#   ENV=k8s-local scripts/compose.sh ps      # TARGET=k8s: on this machine's cluster (scripts/kube.py)
 #
 # For a server environment, `config` runs here, on its bundle; every other command runs on its
 # host (DEPLOY_HOST, with DEPLOY_SSH's options) on the bundle `make deploy` put there, and `up`
@@ -42,6 +43,8 @@ fi
 
 if [ "$shape" = local ]; then
 	python3 -I -B scripts/render.py "$env"
+	# TARGET=k8s, such as k8s-local: the same commands on this machine's cluster (scripts/kube.py).
+	[ "$(python3 -I -B scripts/lib.py target "$env")" != k8s ] || exec python3 -I -B scripts/kube.py "$env" "$@"
 	exec "generated/$env/compose.sh" "$@"
 fi
 if [ "${1:-}" != config ]; then

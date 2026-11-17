@@ -72,8 +72,9 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `local` (default) | This machine | Every service on `127.0.0.1` (ports in `config/local/settings.env`), auth-server's dev mode, LiveKit in dev mode, `DEV=1` and `SCRIPTED=1`, `make seed-demo` |
 | `dev` | A shared server, reached with `make deploy ENV=dev` | Caddy in front with TLS, nothing else published; auth as in prod, since auth-server allows dev mode only on localhost |
 | `prod` | A server, reached with `make deploy ENV=prod` | As `dev`, with prod's stricter secret checks |
+| `k8s-local` | This machine's Kubernetes, such as Docker Desktop's | `local` on Kubernetes instead of Compose, in a namespace of its own on ports 36xxx and 35xxx, so it runs beside `local`: [below](#kubernetes-on-this-machine) |
 
-`dev` and `prod` build on a shared `server` layer (`config/server/`, `compose/server.yml`): Caddy, LiveKit for real, `AUTH_TRUST_PROXY`, and the `TODO`s every server must fill in. Another environment, such as `uat`, needs only `site/config/uat/settings.env` with `SHAPE=prod` (or `dev`) and its own values; it gets that shape's layers, then its own (`config/uat/`, `compose/uat.yml`) in any part. Each environment is its own Compose project, `<PROJECT_NAME>-<env>`, so two can share a host. `TARGET` says what runs it: `compose` today, `k8s` once it's built ([`plan.md`](plan.md)).
+`dev` and `prod` build on a shared `server` layer (`config/server/`, `compose/server.yml`): Caddy, LiveKit for real, `AUTH_TRUST_PROXY`, and the `TODO`s every server must fill in. Another environment, such as `uat`, needs only `site/config/uat/settings.env` with `SHAPE=prod` (or `dev`) and its own values; it gets that shape's layers, then its own (`config/uat/`, `compose/uat.yml`) in any part. Each environment is its own Compose project, `<PROJECT_NAME>-<env>`, so two can share a host. `TARGET` says what runs it: `compose`, or `k8s` for an environment on this machine's cluster, such as `k8s-local` (a server cluster is [`plan.md`](plan.md) E5).
 
 ## Commands
 
@@ -81,7 +82,7 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 
 | Command | Does |
 | --- | --- |
-| `make doctor` | Whether this machine can run the project: Docker, Compose 2.24+, Python, free ports |
+| `make doctor` | Whether this machine can run the project: Docker, Compose 2.24+, Python, free ports, and for `k8s-local`, kubectl reaching its cluster |
 | `make up` / `down` / `down-all` | Start (building each module from `src/`), stop, or stop and delete data |
 | `make seed-demo` | The foundation's sample accounts, then each module's `hooks/seed-demo.sh` (local only) |
 | `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route and a turn with each module's agent, then each module's `hooks/smoke.py` |
@@ -208,6 +209,34 @@ A server environment (`dev`, `prod`, or one built on them) runs on its host, `DE
 Every service on a server rotates its logs (`LOG_MAX_SIZE`, `LOG_MAX_FILES`) and has a memory limit (`MEM_LIMIT`, or `MEM_LIMIT_LARGE` for Postgres and the agents), set in `foundation/config/server/settings.env`; override them in `site/config/<env>/settings.env`, or for one service in `site/compose/server.yml`. The model gateway's audit and the backups are volumes, so they outlive their containers.
 
 A backup is only as useful as the secrets it was taken with: `MODEL_KEY` and any module's data key decrypt what's in it, and they're in git, in `site/secrets/<env>.enc.env`. Pull backups off the host regularly; a host's own copies go with the host.
+
+## Kubernetes on this machine
+
+`k8s-local` runs what `local` runs on this machine's Kubernetes, such as Docker Desktop's (turn it on in Docker Desktop's settings). It's built on `local` (`SHAPE=local`) with `TARGET=k8s`, so the same commands work with `ENV=k8s-local`:
+
+```sh
+make doctor ENV=k8s-local           # also: kubectl reaches KUBE_CONTEXT
+make up ENV=k8s-local               # modules in src/ built first; waits until everything is ready
+make seed-demo ENV=k8s-local
+make smoke ENV=k8s-local            # the same checks as on local
+make verify ENV=k8s-local           # every gate, from empty volumes
+```
+
+Nothing is written twice for it. `scripts/render.py` writes the Compose bundle as for `local`, then `scripts/kube.py` turns `docker compose config` on that bundle into Kubernetes objects, in `generated/k8s-local/kustomization.yaml` and `k8s/`, so what runs on the cluster is what Compose and `make smoke` test:
+
+| On Compose | On Kubernetes |
+| --- | --- |
+| A service | A Deployment with one replica, replaced rather than rolled. A one-off service that another waits on to finish (`seed`, `<id>-db`, `t10-agents`, …) is a Job, run again on every `make up` |
+| Its name on Compose's network | A headless Service of the same name, so every address in the settings works as it is |
+| A published port | A LoadBalancer Service, `<service>-public`, on the same port; Docker Desktop publishes it on localhost |
+| A named volume | A PersistentVolumeClaim. `make down` keeps them; `make down-all` deletes the namespace, and with it the data |
+| A file or folder from the bundle | A ConfigMap named by its content's hash, so a change restarts what mounts it |
+| Its secrets | A Secret per service, `<service>-secrets`, made in memory by `make up`: never written to `generated/` |
+| `healthcheck`, `depends_on` | Its readiness probe, and the order: `make up` applies the services in waves, each once those it waits on are ready or done |
+
+It runs in the namespace `<PROJECT_NAME>-k8s-local` on the `docker-desktop` context; set `KUBE_NAMESPACE` or `KUBE_CONTEXT` in `site/config/k8s-local/settings.env` to change them. Nothing outside its namespace is touched, so it runs beside a workspace's own cluster deployment. `make ps`, `logs`, `exec`-based hooks, `reload MODULE=<id>` and `routes-publish` work as on `local`; `make check ENV=k8s-local` also builds the objects with kustomize and checks no secret is in them.
+
+A module gets its own port for it, `PORT` + 18000, in `modules/<id>/config/k8s-local/settings.env`. A change only for Kubernetes goes in a part's `k8s/<layer>/` as a kustomize component (`k8s/base/`, `k8s/local/` or `k8s/k8s-local/`), which `kustomization.yaml` takes in layer order; `site/k8s/k8s-local/` is a project's own.
 
 ## Keeping up with the template
 

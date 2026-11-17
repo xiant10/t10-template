@@ -15,6 +15,7 @@ Shell scripts ask it for settings instead:
 
     scripts/lib.py setting ENV NAME     # one value from the parts' settings.env files
     scripts/lib.py shape ENV            # local, dev or prod: the template environment ENV is built on
+    scripts/lib.py target ENV           # compose or k8s: what runs it
     scripts/lib.py version NAME         # one image from the parts' versions.env files
     scripts/lib.py sources              # each module in its own repo: "SRC REPO", one per line
     scripts/lib.py built [ID]           # each module built from src/: "ID SRC SERVICE", one per line
@@ -120,12 +121,23 @@ SHAPES = ("local", "dev", "prod")
 
 
 def shape(env):
-    """The template environment env is built on: itself for local, dev and prod, else its SHAPE."""
+    """The template environment env is built on: itself for local, dev and prod, else its SHAPE,
+    from site/config/<env>/ or, for one the template has, such as k8s-local, foundation/config/<env>/."""
     if env in SHAPES:
         return env
-    value = read_env(SITE / "config" / env / "settings.env").get("SHAPE")
+    value = read_env(SITE / "config" / env / "settings.env").get("SHAPE") or read_env(FOUNDATION / "config" / env / "settings.env").get("SHAPE")
     if value not in SHAPES:
         sys.exit(f"{env}: set SHAPE to one of {', '.join(SHAPES)} in site/config/{env}/settings.env")
+    return value
+
+
+def target(env):
+    """What runs env: compose, or k8s (scripts/kube.py), on this machine only for now."""
+    value = settings(env).get("TARGET", "compose")
+    if value not in ("compose", "k8s"):
+        sys.exit(f"{env}: TARGET is compose or k8s, not {value}")
+    if value == "k8s" and shape(env) != "local":
+        sys.exit(f"{env}: TARGET=k8s runs on this machine's cluster only, so SHAPE=local; a server cluster is docs/plan.md E5")
     return value
 
 
@@ -350,6 +362,8 @@ BUNDLED = ("compose", "config", "scripted", "pack", "init-db.sh", "module-init-d
 if __name__ == "__main__":
     if sys.argv[1:2] == ["shape"] and len(sys.argv) == 3:
         print(shape(sys.argv[2]))
+    elif sys.argv[1:2] == ["target"] and len(sys.argv) == 3:
+        print(target(sys.argv[2]))
     elif sys.argv[1:2] == ["version"] and len(sys.argv) == 3:
         value = versions().get(sys.argv[2])
         sys.exit(f"no part's versions.env has {sys.argv[2]}") if value is None else print(value)
