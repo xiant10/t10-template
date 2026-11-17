@@ -24,20 +24,27 @@ environment, with nothing pointing back into the checkout, so it runs here or on
                        For a server environment, these two are written only with T10_BUNDLE_SECRETS=1,
                        which scripts/compose.sh and scripts/deploy.sh set while they need them; the
                        values are decrypted from site/secrets/<env>.enc.env in memory (lib.secrets_text)
-    clients.yaml       auth-server's clients: foundation/clients.json, each component's clients.json
+Every part adds to what follows the same way, in part order, from the same files: clients.json
+(in the form of a pack's clients.fragment.json), agent-routes.json, permissions/*.yaml, part.env
+(lib.LISTS) and public.json. A module's own additions, worked out from its pack, come just before
+its folder's, as its standard wiring and secrets do, so site/ can add to or change any of them.
+    clients.yaml       auth-server's clients: foundation/clients.json, then each part's clients.json
                        and each pack's clients.fragment.json, with ${VAR}, "${sha256:VAR}" and
-                       "${bool:VAR}" filled in
+                       "${bool:VAR}" filled in. A client or runtime with "_merge": true changes
+                       the one already defined with its id or name: lists gain its values, the
+                       rest is replaced. runtime_grants are given after every part is in
+    permissions/       every catalog auth-server loads: each part's permissions/ and each pack's
+    agent-routes.json  foundation/agent-routes.json, each part's, and a pool and an agent for each
+                       module agent
+    modules.env        MODULE_* variables, appended to the foundation's lists in foundation/compose/base.yml:
+                       what each part's part.env adds, and what each module's pack says
+    Caddyfile          on a server (dev, prod): one site per public address, from each part's
+                       public.json and each module's web app, proxied to its service
 
 A module says what its agent tools need once, in its catalog's agent block (lib.grant). Every
 place that needs it gets it from there: the harnesses' MODULE_GRANT_* lists, its own runtimes
-and the foundation runtimes its runtime_grants names in clients.yaml, and its agent's grants.
-    permissions/       every catalog auth-server loads: foundation/permissions/ and each pack's
-    agent-routes.json  foundation/agent-routes.json, each component's, and a pool and an agent for
-                       each module's agent
-    modules.env        MODULE_* variables, appended to the foundation's lists in foundation/compose/base.yml:
-                       what each component's component.env adds, then each module's
-    Caddyfile          on a server (dev, prod): one site per public address, from each part's
-                       public.json and each module's PUBLIC_URL_SETTING, proxied to its service
+and the foundation runtimes its runtime_grants names in clients.yaml, and its agents' grants.
+What a module adds depends on its CAPABILITIES (scripts/wiring.py): web, tools, agent, database.
     kustomization.yaml, k8s/
                        with TARGET=k8s, the same services as Kubernetes objects (scripts/kube.py)
 
@@ -117,26 +124,43 @@ def fill(value, env, where):
 
 
 def merge_clients(base, fragment, source):
+    """Adds a part's clients and runtimes to base. One with "_merge": true changes the one already
+    there instead: a list gains the values it lacks, anything else is replaced."""
     for kind, key in (("clients", "id"), ("runtimes", "name")):
-        have = {item[key] for item in base[kind]}
+        have = {item[key]: item for item in base[kind]}
         for item in fragment.get(kind, []):
-            if item[key] in have:
-                raise SystemExit(f"{source}: {kind} {item[key]!r} is already defined")
-            base[kind].append(item)
-    grants = fragment.get("runtime_grants")
-    if grants:
-        by_name = {r["name"]: r for r in base["runtimes"]}
-        off = lib.runtimes_off()
-        for name in grants["runtimes"]:
-            if name in off:
-                continue
-            if name not in by_name:
-                raise SystemExit(f"{source}: runtime_grants names {name!r}, which isn't a runtime")
-            for field in ("actions", "audiences"):
-                for value in grants.get(field, []):
-                    if value not in by_name[name][field]:
-                        by_name[name][field].append(value)
+            if item.get("_merge"):
+                if item[key] not in have:
+                    raise SystemExit(f"{source}: {kind} {item[key]!r} has _merge, but nothing before it defines it")
+                target = have[item[key]]
+                for field, value in item.items():
+                    if field.startswith("_"):
+                        continue
+                    if isinstance(value, list) and isinstance(target.get(field), list):
+                        target[field] += [v for v in value if v not in target[field]]
+                    else:
+                        target[field] = value
+            elif item[key] in have:
+                raise SystemExit(f"{source}: {kind} {item[key]!r} is already defined; \"_merge\": true changes it")
+            else:
+                base[kind].append(item)
+                have[item[key]] = item
     return base
+
+
+def give_runtime_grants(base, grants, source):
+    """runtime_grants: each runtime it names, that runs, gains its actions and audiences."""
+    by_name = {r["name"]: r for r in base["runtimes"]}
+    off = lib.runtimes_off()
+    for name in grants["runtimes"]:
+        if name in off:
+            continue
+        if name not in by_name:
+            raise SystemExit(f"{source}: runtime_grants names {name!r}, which isn't a runtime")
+        for field in ("actions", "audiences"):
+            for value in grants.get(field, []):
+                if value not in by_name[name][field]:
+                    by_name[name][field].append(value)
 
 
 def add_grant(holder, actions, audience, joined=False):
@@ -153,17 +177,25 @@ def add_grant(holder, actions, audience, joined=False):
     return added
 
 
-def add_route(doc, m):
-    """A module's agent as a pool of its own on agent-ti's replicas, so ai-gateway-agent routes
-    it by name. Not a `hosts` entry under ti: t10-agent-control's router never places a hosted
-    agent. The pool's audience is the agent's own runtime at auth-server, as each pool needs one."""
-    agent = m["AGENT"]
+def add_route(doc, a):
+    """A module agent (wiring.agents) as a pool of its own on agent-ti's replicas, so
+    ai-gateway-agent routes it by name. Not a `hosts` entry under ti: t10-agent-control's router
+    never places a hosted agent. The pool's audience is the agent's own runtime at auth-server,
+    as each pool needs one."""
+    agent = a["name"]
     ti = doc["pools"]["ti"]
     doc["pools"][agent] = {"agent": agent, "state": "active", "harness": ti.get("harness", "ti"),
-                           "audience": m["AGENT_RUNTIME"], "capabilities": ti["capabilities"],
+                           "audience": a["runtime"], "capabilities": ti["capabilities"],
                            "replicas": {name: url.rsplit("/agents/", 1)[0] + "/agents/" + agent for name, url in ti["replicas"].items()},
                            "tools_via_gateway": True}
-    doc["agents"][agent] = {"title": m.get("AGENT_TITLE", agent), "open": True, "routes": [{"pool": agent}]}
+    doc["agents"][agent] = {"title": a["title"], "open": True, "routes": [{"pool": agent}]}
+
+
+def add_routes(doc, extra):
+    """A part's agent-routes.json: its pools and agents, and the picker's default if it says one."""
+    for key in ("pools", "agents"):
+        doc[key].update(extra.get(key, {}))
+    doc["default_agent"] = extra.get("default_agent", doc["default_agent"])
 
 
 def files_under(path, prefix=""):
@@ -261,7 +293,8 @@ def caddyfile(settings):
         if (part / "public.json").exists():
             routes.update({k: v for k, v in json.loads((part / "public.json").read_text()).items() if not k.startswith("_")})
     for _, _, m in lib.modules():
-        routes[m["PUBLIC_URL_SETTING"]] = f"{m['SERVICE']}:{m['PORT']}"
+        if wiring.has(m, "web"):
+            routes[wiring.public_url_setting(m)] = f"{m['SERVICE']}:{m['PORT']}"
     lines = ["# Written by scripts/render.py from each part's public addresses. Don't edit."]
     if settings.get("ACME_EMAIL"):
         lines += ["{", f"\temail {settings['ACME_EMAIL']}", "}"]
@@ -324,7 +357,8 @@ def main(env_name):
         rel = folder.relative_to(lib.ROOT).as_posix()
         src = lib.source(folder).get("SRC")
         for name in names:
-            doc = wiring.compose(m, name, lib.in_project(folder), src, f"env/{m['SERVICE']}.env" in files)
+            configured = {s for s in wiring.services(m) if f"env/{s}.env" in files}
+            doc = wiring.compose(m, name, lib.in_project(folder), src, configured)
             if doc:
                 path = f"{rel}/standard/{name}.yml"
                 header = (f"# {m['MODULE_ID']}'s standard {name} wiring, written by scripts/render.py from its module.env\n"
@@ -333,52 +367,68 @@ def main(env_name):
                 standard[folder, name] = path
     files["compose.sh"] = (compose_script(env_name, standard).encode(), 0o755)
 
-    perms = files_under(lib.FOUNDATION / "permissions") if (lib.FOUNDATION / "permissions").exists() else {}
-    perms = {k: v for k, v in perms.items() if k.endswith(".yaml")}
-
     clients = json.loads((lib.FOUNDATION / "clients.json").read_text())
     routes = json.loads((lib.FOUNDATION / "agent-routes.json").read_text())
-    lists = {k: [] for k in ("GRANT_ACTIONS", "GRANT_AUDIENCES", "TOOL_SERVERS", "TOOL_MODULE_SERVERS",
-                             "WORKBENCH_URLS", "APP_URLS")}
-    for comp in lib.components():
-        if (comp / "clients.json").exists():
-            clients = merge_clients(clients, json.loads((comp / "clients.json").read_text()), comp / "clients.json")
-        if (comp / "agent-routes.json").exists():
-            extra = json.loads((comp / "agent-routes.json").read_text())
-            for key in ("pools", "agents"):
-                routes[key].update(extra.get(key, {}))
-            routes["default_agent"] = extra.get("default_agent", routes["default_agent"])
-        for key, value in lib.read_env(comp / "component.env").items():
-            if key in lists:
-                lists[key] += value.split(",")
-    for folder, pack, m in lib.modules():
-        mid, service, port = m["MODULE_ID"], m["SERVICE"], m["PORT"]
-        actions, audience = lib.grant(pack, m)
-        lists["GRANT_ACTIONS"] += actions
-        lists["GRANT_AUDIENCES"].append(audience)
-        lists["TOOL_SERVERS"].append(f"{mid}={audience}@http://{service}:{port}/mcp")
-        lists["TOOL_MODULE_SERVERS"].append(mid)
-        lists["WORKBENCH_URLS"].append(f"{mid}=http://{service}:{port}")
-        lists["APP_URLS"].append(f"{mid}={settings[m['PUBLIC_URL_SETTING']]}")
-        if m.get("AGENT"):
-            add_route(routes, m)
-            # The agent's own grant gets what its tools need, in the bundle's copy of its agent.json.
-            path = f"{folder.relative_to(lib.ROOT).as_posix()}/pack/agents/{m['AGENT']}/agent.json"
-            agent = json.loads(files[path][0])
-            if "grants" in agent and add_grant(agent["grants"], actions, audience, joined=True):
-                files[path] = ((json.dumps(agent, indent=2, ensure_ascii=False) + "\n").encode(), files[path][1])
-        for f in sorted((pack / "permissions").glob("*.yaml")):
+    lists = {k: [] for k in lib.LISTS}
+    perms = {}
+    grants = []
+    packs = {folder: (pack, m) for folder, pack, m in lib.modules()}
+
+    def add_perms(folder):
+        for f in sorted(folder.glob("*.yaml")) if folder.is_dir() else []:
             if f.name in perms:
                 raise SystemExit(f"{f.name} is in two catalogs")
             perms[f.name] = (f.read_bytes(), 0o644)
-        fragment = pack / "clients.fragment.json"
-        if fragment.exists():
-            # Every runtime that runs its tools gets what they need: its own runtimes, and the
-            # foundation's it names in runtime_grants.
-            extra = json.loads(fragment.read_text())
-            for runtime in extra.get("runtimes", []) + ([extra["runtime_grants"]] if "runtime_grants" in extra else []):
-                add_grant(runtime, actions, audience)
-            clients = merge_clients(clients, extra, fragment)
+
+    def add_clients(extra, source):
+        nonlocal clients
+        if "runtime_grants" in extra:
+            grants.append((extra["runtime_grants"], source))
+        clients = merge_clients(clients, extra, source)
+
+    for part in lib.parts():
+        if part in packs:
+            # What a module adds, worked out from its pack, just before its own folder's files.
+            pack, m = packs[part]
+            mid, service, port = m["MODULE_ID"], m["SERVICE"], m["PORT"]
+            actions, audience = lib.grant(pack, m)
+            if wiring.has(m, "tools"):
+                lists["GRANT_ACTIONS"] += actions
+                lists["GRANT_AUDIENCES"].append(audience)
+                lists["TOOL_SERVERS"].append(f"{mid}={audience}@http://{service}:{port}/mcp")
+                lists["TOOL_MODULE_SERVERS"].append(mid)
+            if wiring.has(m, "web"):
+                lists["WORKBENCH_URLS"].append(f"{mid}=http://{service}:{port}")
+                lists["APP_URLS"].append(f"{mid}={settings[wiring.public_url_setting(m)]}")
+            for a in wiring.agents(m):
+                add_route(routes, a)
+                # The agent's own grant gets what its tools need, in the bundle's copy of its agent.json.
+                path = f"{part.relative_to(lib.ROOT).as_posix()}/pack/agents/{a['name']}/agent.json"
+                agent = json.loads(files[path][0])
+                if actions and "grants" in agent and add_grant(agent["grants"], actions, audience, joined=True):
+                    files[path] = ((json.dumps(agent, indent=2, ensure_ascii=False) + "\n").encode(), files[path][1])
+            add_perms(pack / "permissions")
+            fragment = pack / "clients.fragment.json"
+            if fragment.exists():
+                # Every runtime that runs its tools gets what they need: its own runtimes, and the
+                # foundation's it names in runtime_grants.
+                extra = json.loads(fragment.read_text())
+                if actions:
+                    for runtime in extra.get("runtimes", []) + ([extra["runtime_grants"]] if "runtime_grants" in extra else []):
+                        add_grant(runtime, actions, audience)
+                add_clients(extra, fragment)
+        # The part's own: foundation/'s clients.json and agent-routes.json are where the others start.
+        if part != lib.FOUNDATION:
+            if (part / "clients.json").exists():
+                add_clients(json.loads((part / "clients.json").read_text()), part / "clients.json")
+            if (part / "agent-routes.json").exists():
+                add_routes(routes, json.loads((part / "agent-routes.json").read_text()))
+        add_perms(part / "permissions")
+        for key, value in lib.part_env(part).items():
+            if key in lists:
+                lists[key] += [v for v in value.split(",") if v]
+    for extra, source in grants:
+        give_runtime_grants(clients, extra, source)
 
     files.update({f"permissions/{k}": v for k, v in perms.items()})
     clients = fill(clients, values, "clients")

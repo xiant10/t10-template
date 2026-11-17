@@ -21,7 +21,7 @@ folder and layered right after it.
 | `module-init-db.sh` | Each module's database and login, run by its `<id>-db` one-shot on every start (`../scripts/wiring.py`) |
 | `clients.json` | OAuth clients and runtimes, before modules add theirs. `scripts/render.py` merges it into auth-server's `clients.yaml` |
 | `agent-routes.json` | Agents and pools, before modules add theirs. Rendered and published to t10-agent-control |
-| `permissions/` | Foundation permission catalogs to deploy. None yet |
+| `permissions/` | Foundation permission catalogs to deploy. None yet. Any part can add catalogs, clients, routes and list entries the same way (`../docs/guide.md#what-a-part-adds`) |
 | `secrets.json` | Every secret the foundation's services use: who uses it, how to make it, how to rotate it. Never values |
 | `config/<service>.env` | A service's settings in every environment |
 | `config/<service>/` | Config files mounted into it, such as `ai-gateway-llm/config.yaml` |

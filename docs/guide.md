@@ -6,7 +6,7 @@ The reference for a project made from this template: who owns what, where everyt
 
 One rule: **the root and `foundation/` belong to the template; `README.md`, `modules/`, `site/` and `src/` belong to the project; `generated/` is never committed.**
 
-A project changes only its own paths. Everything else comes from the template and is changed there, so every project gets the change and `make template-update` merges cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. `make check` warns about any template file a project edited.
+A project changes only its own paths (`lib.OWNED` in `scripts/lib.py`, which `make template-update` and `make check` both read). Everything else comes from the template and is changed there, so every project gets the change and `make template-update` merges cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. What it adds goes in `site/` too: clients, catalogs, agent routes and list entries ([What a part adds](#what-a-part-adds)), steps around its commands ([Hooks](#hooks)), and commands of its own ([below](#a-projects-own-commands)). `make check` warns about any template file a project edited.
 
 What a module shares with every other module (how it plugs into the foundation, and the Go code every module's service needs) is the template's too: `scripts/wiring.py` and `kit/go/`. A module's own folders hold only what's particular to it, so a fix to what they share reaches every module with a template update.
 
@@ -20,7 +20,8 @@ What a module shares with every other module (how it plugs into the foundation, 
 ├── Makefile               the commands (`make help`)                                    template
 ├── scripts/               what the commands run; lib.py finds the parts                template
 │   ├── wiring.py          the standard wiring every module gets, from its module.env
-│   └── scaffold/src/      what `make new-module` writes into src/<id>/
+│   ├── hook.py            runs each part's hooks/<event>
+│   └── scaffold/<lang>/   what `make new-module` writes into src/<id>/: go
 ├── kit/go/                the Go kit every module's service imports: auth, MCP, routes   template
 ├── tests/                 the template's own tests (`make test-template`)               template
 ├── docs/                  how the template works                                        template
@@ -30,7 +31,8 @@ What a module shares with every other module (how it plugs into the foundation, 
 │   ├── compose/           base.yml: every core service; local.yml: published ports;
 │   │                      server.yml: Caddy and LiveKit on a server; scripted.yml: SCRIPTED=1
 │   ├── config/            <service>.env for every environment, local/ and server/ for some, <service>/ for files
-│   ├── components/<name>/ optional pieces a project picks in FOUNDATION: assistant, livekit, console, automations
+│   ├── components/<name>/ optional pieces a project picks in FOUNDATION: assistant, livekit, console, automations;
+│   │                      each a part, with part.env for what it REQUIRES and adds to the lists
 │   ├── scripted/          the scripted model SCRIPTED=1 runs
 │   └── …                  public.json (Caddy's sites), clients.json, agent-routes.json, permissions/,
 │                          secrets.json, init-db.sh, module-init-db.sh (each module's database)
@@ -41,7 +43,8 @@ What a module shares with every other module (how it plugs into the foundation, 
 │   ├── compose/           optional: changes to its standard wiring, per layer; scripted.yml for SCRIPTED=1
 │   ├── secrets.json       optional: secrets beyond its standard ones
 │   ├── init-db.sh         optional: more database setup, after its database and login are made
-│   ├── hooks/             optional: seed-demo.sh and smoke.py, run by `make seed-demo` and `make smoke`
+│   ├── hooks/             optional: hooks/<event>.sh or .py, such as seed-demo.sh and smoke.py (#hooks)
+│   ├── module.mk          optional: its own make targets
 │   └── pack/              own repo only: its pack, copied from its image by `make sync-module`
 ├── src/<id>/              a module's code: its service, tests, Dockerfile and pack (module/)   project
 │                          (a module in its own repo: a checkout from `make clone`, not committed)
@@ -49,15 +52,39 @@ What a module shares with every other module (how it plugs into the foundation, 
 │   ├── config/            settings.env (PROJECT_NAME, FOUNDATION), <env>/settings.env, any <service>.env
 │   ├── secrets/           the secret values: local.env, and each server's <env>.enc.env, encrypted
 │   ├── versions.env       optional: a pin this project needs to differ from the template's
+│   ├── clients.json, agent-routes.json, permissions/, part.env
+│   │                      optional: what it adds to the foundation (#what-a-part-adds)
+│   ├── hooks/             optional: steps around its commands (#hooks)
+│   ├── project.mk         optional: its own make targets
 │   └── docs/              the project's own plan and open questions
 └── generated/<env>/       the bundle that runs, rewritten on every command                not committed
 ```
 
 ### Parts and layers
 
-`foundation/`, each component that's on, each `modules/<id>/` and `site/` are **parts**, layered in that order, later ones winning. Each part can hold the same things: `versions.env`, `secrets.json`, `config/` and `compose/`. A module's standard wiring and standard secrets come just before its own folder's, so its folder can change anything in them.
+`foundation/`, each component that's on, each `modules/<id>/` and `site/` are **parts**, layered in that order, later ones winning. Each part can hold the same things: `versions.env`, `secrets.json`, `config/`, `compose/`, what it adds to the foundation ([below](#what-a-part-adds)) and `hooks/`. A module's standard wiring, secrets and additions come just before its own folder's, so its folder, and `site/` after it, can change anything in them.
 
 Inside each part, `config/` and `compose/` are layered by **environment** (below): every environment's files, then each of its layers in turn.
+
+### What a part adds
+
+Some of the foundation's inputs are one file or list that many parts add to. Any part adds to them the same way, in part order:
+
+| File in a part | Adds | Into |
+| --- | --- | --- |
+| `clients.json` | OAuth `clients` and `runtimes`, in the form of a pack's `clients.fragment.json`; `runtime_grants` gives actions and audiences to runtimes defined elsewhere | auth-server's `clients.yaml` |
+| `agent-routes.json` | `pools`, `agents`, and `default_agent` for the picker | the route document published to t10-agent-control |
+| `permissions/*.yaml` | Permission catalogs | auth-server's catalogs |
+| `public.json` | `{"<SETTING>": "<service>:<port>"}`: a public address and the service behind it | Caddy's sites, on a server |
+| `part.env` | `WORKBENCH_URLS`, `APP_URLS`, `GRANT_ACTIONS`, `GRANT_AUDIENCES`, `TOOL_SERVERS`, `TOOL_MODULE_SERVERS`, comma lists; and for a component, `REQUIRES` | the foundation's lists, through `modules.env` |
+
+A client or runtime that's already defined is refused, so a typo can't replace one. To change one, give its `id` (or a runtime's `name`) with `"_merge": true`: a list gains the values it lacks, and anything else is replaced. So a project adds a redirect URI for its own domain with this in `site/clients.json`:
+
+```json
+{"clients": [{"id": "t10-workbench", "_merge": true, "redirect_uris": ["https://work.example.com/auth/callback"]}]}
+```
+
+`foundation/clients.json` and `foundation/agent-routes.json` are where the others start. A module's additions are worked out from its pack ([`module.md`](module.md#what-the-template-gives-every-module)) and come just before its own folder's.
 
 ### Foundation components
 
@@ -74,7 +101,7 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `prod` | A server, reached with `make deploy ENV=prod` | As `dev`, with prod's stricter secret checks |
 | `k8s-local` | This machine's Kubernetes, such as Docker Desktop's | `local` on Kubernetes instead of Compose, in a namespace of its own on ports 36xxx and 35xxx, so it runs beside `local`: [below](#kubernetes-on-this-machine) |
 
-`dev` and `prod` build on a shared `server` layer (`config/server/`, `compose/server.yml`): Caddy, LiveKit for real, `AUTH_TRUST_PROXY`, and the `TODO`s every server must fill in. Another environment, such as `uat`, needs only `site/config/uat/settings.env` with `SHAPE=prod` (or `dev`) and its own values; it gets that shape's layers, then its own (`config/uat/`, `compose/uat.yml`) in any part. Each environment is its own Compose project, `<PROJECT_NAME>-<env>`, so two can share a host. `TARGET` says what runs it: `compose`, or `k8s` for an environment on this machine's cluster, such as `k8s-local` (a server cluster is [`plan.md`](plan.md) E5).
+`dev` and `prod` build on a shared `server` layer (`config/server/`, `compose/server.yml`): Caddy, LiveKit for real, `AUTH_TRUST_PROXY`, and the `TODO`s every server must fill in. Another environment, such as `uat`, needs only `site/config/uat/settings.env` with `SHAPE=prod` (or `dev`) and its own values; it gets that shape's layers, then its own (`config/uat/`, `compose/uat.yml`) in any part. `LAYERS` there picks other layers instead, such as `LAYERS=server,staging` for settings several environments share in `config/staging/`; it must keep `server` (or `local`, for a local shape), and the environment's own layer comes last as always. Each environment is its own Compose project, `<PROJECT_NAME>-<env>`, so two can share a host. `TARGET` says what runs it: `compose`, or `k8s` for an environment on this machine's cluster, such as `k8s-local` (a server cluster is [`plan.md`](plan.md) E5).
 
 ## Commands
 
@@ -84,14 +111,14 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | --- | --- |
 | `make doctor` | Whether this machine can run the project: Docker, Compose 2.24+, Python, free ports, and for `k8s-local`, kubectl reaching its cluster |
 | `make up` / `down` / `down-all` | Start (building each module from `src/`), stop, or stop and delete data |
-| `make seed-demo` | The foundation's sample accounts, then each module's `hooks/seed-demo.sh` (local only) |
-| `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route and a turn with each module's agent, then each module's `hooks/smoke.py` |
+| `make seed-demo` | The foundation's sample accounts, then each part's `hooks/seed-demo` (local only) |
+| `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route and a turn with each module agent, then each part's `hooks/smoke` |
 | `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants reached every place, Compose renders, the bundle mounts nothing from outside itself, and on a server, no `TODO` is left and each module from `src/` is released as committed |
 | `make test` | Each module's own tests from `src/`, in Docker (`MODULE=<id>` for one) |
 | `make contract MODULE=<id>` | One module alone, with its own Postgres and no foundation: its pack and the contract its service must keep ([`integration.md`](integration.md)); `make alone` keeps it running |
 | `make reload MODULE=<id>` | After changing a module in `src/`: rebuild and restart it, and what reads its pack if that changed |
 | `make verify` | Every gate from empty volumes: `test`, each module's `contract`, then `down-all`, `up`, `seed-demo`, `check`, `smoke`. Run it before calling a change done |
-| `make new-module ID=<id>` | A new module: its code in `src/<id>/` and its deployment in `modules/<id>/` ([`module.md`](module.md)) |
+| `make new-module ID=<id>` | A new module: its code in `src/<id>/` and its deployment in `modules/<id>/` ([`module.md`](module.md)); `SCAFFOLD=` picks the language of its code, `go` by default |
 | `make release MODULE=<id>` | Build a module from `src/`, push it to `IMAGE_REGISTRY` and pin it, for servers |
 | `make config-show SVC=<service>` | A service's settings, and which file each came from |
 | `make deploy ENV=<env>` | Copy the environment's bundle to its host over SSH and start it there, after `make check` |
@@ -109,6 +136,29 @@ Two switches, both local only:
 - **`DEV=1`** builds each module that has its own repo from its checkout in `src/`, instead of pulling its image. A module whose code is in the project is always built from `src/` on local.
 
 On a server, `make smoke` checks only what Caddy publishes.
+
+## Hooks
+
+A part's `hooks/<event>.sh` or `hooks/<event>.py` runs at that point in a command, in part order: the foundation's, its components', each module's, then `site/`'s. So a project's step, such as a data import after `make up` or a notice after a deploy, goes in `site/hooks/`, never in a template script.
+
+| Event | Runs | A failure |
+| --- | --- | --- |
+| `post-up` | After `make up`, once the stack is healthy and its routes are published | Fails `make up` |
+| `seed-demo` | In `make seed-demo`, after the foundation's sample accounts (local only) | Fails it |
+| `smoke` | At the end of `make smoke`'s own checks, on local | Is a failed check |
+| `check` | At the end of `make check`'s own checks | Is a failed check |
+| `pre-deploy`, `post-deploy` | Here, in `make deploy`: after `make check` and before the copy; once the host is up | Stops the deploy |
+
+Each runs from the project's root with `ENV`, `T10_PART` (its part, such as `site` or `modules/crm`), `T10_MODULE` (a module's ID, else empty) and `T10_COMPOSE` (`scripts/compose.sh`, to `exec` into a container). A `.sh` hook runs with `sh`, a `.py` one with `python3 -I -B`. A `smoke.py` or `check.py` hook instead runs inside `make smoke` or `make check`, with their helpers: `check(name, ok, detail)`, and for `smoke`, `http`, `compose`, `agent`, `open_session`, `turn`, `tool_calls`, `token`, `cfg`, `SCRIPTED`, and for a module's, `module` (its `module.env`) and `url`; for `check`, `ENV`, `bundle` and `run`. `seed-demo` hooks also get `AUTH_URL` and `T10_PG_USER`.
+
+## A project's own commands
+
+The Makefile includes `site/project.mk` and each `modules/<id>/module.mk` if they exist. Both are the project's, so a project's own targets live there rather than in the template's Makefile, and `make help` lists any with a `## ` comment:
+
+```make
+import-contacts: ## Load a contacts export into the crm module
+	@scripts/compose.sh exec -T t10-crm /usr/local/bin/t10-crm import /data/contacts.csv
+```
 
 ## Changing a setting
 

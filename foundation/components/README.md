@@ -3,8 +3,8 @@
 The foundation's optional pieces. Each folder is a part shaped like `../` (the core) or a module:
 any of `compose/`, `config/`, `secrets.json`, `public.json`, `clients.json` (in
 the form of a module's `clients.fragment.json`), `agent-routes.json` (pools and agents to add),
-and `component.env`, which can name components it needs in `REQUIRES` and add to the core's lists
-(`WORKBENCH_URLS`). Their images are pinned with the core's, in `../versions.env`.
+and `part.env`, which can name components it needs in `REQUIRES` and add to the core's lists
+(`WORKBENCH_URLS`), as any part's can (`../../docs/guide.md#what-a-part-adds`). Their images are pinned with the core's, in `../versions.env`.
 
 | Component | Runs | Without it |
 | --- | --- | --- |

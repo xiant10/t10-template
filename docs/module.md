@@ -1,6 +1,6 @@
 # Building a module
 
-A module is the business part of a project: a service with its own database, web app, tools and agent, plugged into the foundation. This is what a module provides, where each part lives, and how to work on one. Where things live in a project overall is [`guide.md`](guide.md).
+A module is the business part of a project: a service with, as it needs them, its own database, web app, tools and agents, plugged into the foundation. This is what a module provides, where each part lives, and how to work on one. Where things live in a project overall is [`guide.md`](guide.md).
 
 ## In short
 
@@ -21,7 +21,10 @@ It runs as it is. Then make it yours:
 | Its data | Migrations in its code, run at start, against the database it's given | `make reload`, or `make down-all && make up` for a fresh database |
 | A setting | `modules/<id>/config/<service>.env` | `make up` |
 | A secret beyond the standard ones | `modules/<id>/secrets.json`, in the form of `foundation/secrets.json`, with an `env` naming the service and variable that get it ([`guide.md`](guide.md#secrets)) | `make up` |
-| Its demo data, extra checks | `modules/<id>/hooks/seed-demo.sh`, `hooks/smoke.py` | `make seed-demo`, `make smoke` |
+| What it has: a web app, tools, agents, a database | `CAPABILITIES` in `src/<id>/module/module.env` ([below](#what-it-has)) | `make contract MODULE=<id>`, `make up` |
+| Another agent, or a worker beside its service | `AGENTS`, `SERVICES` in `module.env` ([below](#what-it-has)) | `make reload MODULE=<id>` |
+| Its demo data, extra checks, steps around a command | `modules/<id>/hooks/<event>.sh` or `.py`, such as `seed-demo.sh` and `smoke.py` ([`guide.md`](guide.md#hooks)) | `make seed-demo`, `make smoke` |
+| Commands of its own | `modules/<id>/module.mk`, included by the Makefile | `make help` lists them |
 
 Commit `src/<id>/` and `modules/<id>/` together: one commit is one change to the module. Before calling it done, `make verify` runs everything from empty volumes.
 
@@ -31,12 +34,33 @@ A module is proven alone before it meets the foundation: `make test` (its code),
 
 A module's own folders hold only what's particular to it. The rest is the template's, so a fix there reaches every module with `make template-update`:
 
-- **Its wiring** (`scripts/wiring.py`). On every command, `scripts/render.py` writes from its `module.env`, into the bundle: a one-shot `<id>-db` that makes its database and login (on every start, so a module joins a running stack); a one-shot `<id>-seed` that adds its accounts to auth-server; its agent, copied into agent-ti, with its runtime's secret; its service, with the standard settings below, a read-only filesystem and a healthcheck on `/readyz`; and `ai-gateway-tools` and `workbench` waiting for it. On local, its port on `127.0.0.1`, and for code in the project, its build from `src/<id>/`.
+- **Its wiring** (`scripts/wiring.py`). On every command, `scripts/render.py` writes from its `module.env`, into the bundle: a one-shot `<id>-db` that makes its database and login (on every start, so a module joins a running stack); a one-shot `<id>-seed` that adds its accounts to auth-server; its agents, copied into agent-ti, with their runtimes' secrets; its service, with the standard settings below, a read-only filesystem and a healthcheck on `/readyz`, and any more services it lists; and `ai-gateway-tools` and `workbench` waiting for it. On local, its port on `127.0.0.1`, and for code in the project, its build from `src/<id>/`.
 - **Its standard secrets**: `<ID>_DB_PASSWORD`, each account's `<ACCOUNT>_SECRET` (such as `T10_CRM_SECRET` and `AGENT_TI_CRM_SECRET`), `<ID>_WEB_CLIENT_SECRET` and `<ID>_SESSION_KEY`.
-- **Its place in the foundation**: its grants on the harnesses, its tool server on `ai-gateway-tools`, its workbench entry, its app on auth-server's landing page, its agent's route, its catalog and its OAuth clients, all from its pack.
+- **Its place in the foundation**: its grants on the harnesses, its tool server on `ai-gateway-tools`, its workbench entry, its app on auth-server's landing page, its agents' routes, its catalog and its OAuth clients, all from its pack.
+
+Each comes only with the capability that needs it ([below](#what-it-has)).
 - **Its service's common code** (`kit/go/`, for a module written in Go): the token verifier, a person's and an agent's access checked against auth-server, the MCP server for its tools, and the routes every module answers. Its own code is its tools, its web app, and its tests.
 
-Its folder can change any of the wiring: `modules/<id>/compose/base.yml` (or `local.yml`, …) is read after the standard file for the same name and merged over it by Compose. Set `DATABASE=false` in `module.env` for a module without a database, and leave `AGENT` empty for one without an agent.
+Its folder can change any of the wiring: `modules/<id>/compose/base.yml` (or `local.yml`, …) is read after the standard file for the same name and merged over it by Compose. It can add to the foundation's inputs as any part can (`clients.json`, `agent-routes.json`, `permissions/`, `part.env`: [`guide.md`](guide.md#what-a-part-adds)), after what its pack adds.
+
+## What it has
+
+`CAPABILITIES` in `module.env` says which of these a module has, and each brings its own wiring, secrets, checks and smoke steps, and nothing for what it doesn't have:
+
+| Capability | Brings | Its pack then needs |
+| --- | --- | --- |
+| `web` | A public address (`PUBLIC_URL_SETTING`) and Caddy site on a server, `<ID>_WEB_CLIENT_SECRET` and `<ID>_SESSION_KEY`, its workbench entry and its app on auth-server's landing page | A web client in `clients.fragment.json`, using `<ID>_PUBLIC_URL` and the hash of `<ID>_WEB_CLIENT_SECRET` |
+| `tools` | Its MCP server on `ai-gateway-tools`, and its catalog's `agent` block given to the harnesses, its agents and the runtimes that run its tools | An `agent` block in its catalog naming its actions, with its service as the audience; tools named `<id>_…` at `/mcp` |
+| `agent` | Each agent in `AGENTS`: its folder copied into agent-ti, its route and pool, its runtime's secret on agent-ti, and a turn with it in `make smoke` | `agents/<agent>/` for each, its runtime in `SERVICE_ACCOUNTS` and in `clients.fragment.json` |
+| `database` | `<id>-db`, its database and login, and `DATABASE_URL` | Migrations in its code |
+
+Every module keeps the HTTP contract on `SERVICE` ([below](#its-service)): `/readyz`, `/v1/module` and `/v1/access`, and `/mcp` with `tools`. One without `web` is published only on this machine, at its local port, where `make smoke` and `make contract` reach it.
+
+**Agents.** `AGENTS=crm,crm-intake` gives a module two agents, each a folder in `agents/`. Each one's runtime account is `agent-ti-<agent>` unless `AGENT_RUNTIME_<AGENT>` says otherwise, and its name in the picker `AGENT_TITLE_<AGENT>`. The first agent's `agent.json` reads its runtime's secret from `${<ID>_AUTH_CLIENT_SECRET}`, any other's from `${<AGENT>_AUTH_CLIENT_SECRET}` (`CRM_INTAKE_AUTH_CLIENT_SECRET`). Every agent gets what the catalog's `agent` block says its tools need.
+
+**More services.** `SERVICES=t10-crm-worker` adds services that run the module's image beside `SERVICE`, with the same standard settings, `DATABASE_URL`, `AUTH_CLIENT_SECRET` (`SERVICE`'s account), read-only filesystem and server limits, but no port or healthcheck. Give each its command and anything else in `modules/<id>/compose/base.yml`, and its settings in `modules/<id>/config/<service>.env`.
+
+**What it needs.** `REQUIRES=livekit,crm` names foundation components or other modules it can't run without. Every command refuses a project where one is missing, naming it.
 
 ## Where its code is
 
@@ -59,22 +83,27 @@ The service's image ships a **pack** at `/module`, so its deployment always matc
 | --- | --- | --- |
 | `module.env` | Facts a deployment needs, below. Nothing secret, nothing per environment | The scripts, and its standard wiring |
 | `permissions/<id>.yaml` | Its permission catalog, with an `agent` block naming the `actions` and `audience` its agent tools need: the one place that's said | auth-server, and the scripts, which give it to every place below |
-| `agents/<AGENT>/` | Its agent folder for agent-ti; `agent.json` reads its runtime secret from `${<ID>_AUTH_CLIENT_SECRET}` | `t10-agents`, which copies it into agent-ti |
+| `agents/<agent>/` | An agent folder for agent-ti, for each of `AGENTS`; `agent.json` reads its runtime secret as [above](#what-it-has) | `t10-agents`, which copies it into agent-ti |
 | `clients.fragment.json` | Its OAuth clients, its runtimes, and in `runtime_grants.runtimes` the foundation runtimes that may run its tools | Merged into auth-server's `clients.yaml` |
 
-What its tools need, from the catalog's `agent` block, is added to its agent's own grant, to each of its runtimes and those `runtime_grants` names, and to the harnesses' `GRANT_ACTIONS` and `GRANT_AUDIENCES`. `make check` confirms it reached each one.
+What its tools need, from the catalog's `agent` block, is added to each agent's own grant, to each of its runtimes and those `runtime_grants` names, and to the harnesses' `GRANT_ACTIONS` and `GRANT_AUDIENCES`. `make check` confirms it reached each one.
 
 `module.env` sets:
 
 | Key | Means |
 | --- | --- |
+| `PACK_VERSION` | The pack format it's written in, `1`. The template reads the versions in `PACK_VERSIONS` (`scripts/wiring.py`) and refuses any other, so a module released for a newer template can't be misread by an older one, or the reverse |
 | `MODULE_ID` | The ID: the folder name in `modules/`, the action prefix, and `T10_<ID>` for its image |
 | `SERVICE`, `PORT` | Its Compose service and auth-server account, and the port it listens on |
-| `SERVICE_ACCOUNTS` | Its accounts in auth-server: itself and its agent's runtime |
-| `AGENT`, `AGENT_TITLE`, `AGENT_RUNTIME` | Its agent folder, its name in the picker, and its runtime account; `AGENT` empty for none |
-| `PUBLIC_URL_SETTING` | The setting holding its web app's public address, such as `CRM_PUBLIC_URL` |
-| `DATABASE` | Optional: `false` for no database |
+| `CAPABILITIES` | What it has, of `web`, `tools`, `agent` and `database` ([above](#what-it-has)) |
+| `SERVICE_ACCOUNTS` | Its accounts in auth-server: itself and each agent's runtime |
+| `AGENTS` | With `agent`: its agents, each a folder in `agents/`; `AGENT_TITLE_<AGENT>` and `AGENT_RUNTIME_<AGENT>` optional for each |
+| `PUBLIC_URL_SETTING` | With `web`: the setting holding its web app's public address, `<ID>_PUBLIC_URL` |
+| `SERVICES` | Optional: more services from its image, such as a worker |
+| `REQUIRES` | Optional: components or modules it needs |
 | `GRANT_ACTIONS`, `GRANT_AUDIENCE` | Optional: more than the catalog's `agent` block says |
+
+A pack written before v0.6.0 has no `PACK_VERSION` or `CAPABILITIES`. It reads as version 1 with `web`, `tools`, `database` unless `DATABASE=false`, and `agent` when `AGENT` names one, with `AGENT_TITLE` and `AGENT_RUNTIME` for it; `make contract` asks for the new keys.
 
 ## Its service
 
@@ -83,12 +112,12 @@ What a project expects of every module's service, which `make smoke` checks:
 - `GET /readyz` answers 200 when it's ready.
 - `GET /v1/module` returns its manifest, with `action_prefix` equal to `MODULE_ID`. Workbench reads it.
 - `GET /v1/access` tells a signed-in person what they may do; a tenant admin gets `tenant_admin: true`.
-- `/mcp` serves its tools, which `ai-gateway-tools` lists for the harnesses. Calling one needs an agent's delegated token for the person it acts for.
-- It sends assistant turns to `AGENT_URL` (ai-gateway-agent) with `Agent-Name: <AGENT>`, and its agent answers one.
+- With `tools`, `/mcp` serves its tools, which `ai-gateway-tools` lists for the harnesses. Calling one needs an agent's delegated token for the person it acts for.
+- With `agent`, it sends assistant turns to `AGENT_URL` (ai-gateway-agent) with `Agent-Name: <agent>`, and each agent answers one.
 
-The standard wiring gives it these settings: `AUTH_ISSUER`, `AUTH_URL`, `AUTH_CLIENT_SECRET` (its account's), `AUTH_WEB_CLIENT_SECRET`, `<ID>_PUBLIC_URL`, `<ID>_SESSION_KEY`, `AGENT_URL`, and `DATABASE_URL` unless it has no database; its own `config/<service>.env` adds `LISTEN_ADDR` and anything else.
+The standard wiring gives it these settings: `AUTH_ISSUER`, `AUTH_URL`, `AUTH_CLIENT_SECRET` (its account's), `AGENT_URL`, with `web` `AUTH_WEB_CLIENT_SECRET`, `<ID>_PUBLIC_URL` and `<ID>_SESSION_KEY`, and with `database` `DATABASE_URL`; its own `config/<service>.env` adds `LISTEN_ADDR` and anything else.
 
-In Go, `t10kit/module` answers all of the routes: a module fills in a `module.Module` (its ID, label, access and tools) and registers it on its mux, beside its own routes. `module.Fake` stands in for auth-server in its tests. The kit's own tests cover what every module answers, so a module's tests cover only its tools and API. A module in another language answers the same routes itself; the kit is the reference.
+In Go, `t10kit/module` answers all of the routes: a module fills in a `module.Module` (its ID, label, access and tools) and registers it on its mux, beside its own routes. `module.Fake` stands in for auth-server in its tests. The kit's own tests cover what every module answers, so a module's tests cover only its tools and API. A module in another language answers the same routes itself; the kit is the reference. `make new-module SCAFFOLD=<lang>` starts one from `scripts/scaffold/<lang>/`, of which `go` is the only one yet: another is a folder there with the same tokens (`__id__`, `__ID__`, `__Id__`, `__service__`, `__port__`), a `module/` pack, and a Dockerfile with a `test` stage that `make test` builds.
 
 ## Its folder: `modules/<id>/`
 
@@ -102,7 +131,9 @@ In Go, `t10kit/module` answers all of the routes: a module fills in a `module.Mo
 | `compose/scripted.yml` | `SCRIPTED_TOOL_<ID>`: the tool the scripted model calls, so `make smoke` sees a turn reach it |
 | `compose/<name>.yml` | Optional: changes to its standard wiring for that name, such as a setting it needs on auth-server or its own secret on its service |
 | `secrets.json`, `init-db.sh` | Optional: secrets beyond the standard ones; database setup after its database and login exist |
-| `hooks/seed-demo.sh`, `hooks/smoke.py` | Optional: its demo data, after the foundation's; its own checks, after the shared ones (`scripts/smoke.py` says what it's given) |
+| `hooks/<event>.sh` or `.py` | Optional: such as `seed-demo.sh`, its demo data, after the foundation's, and `smoke.py`, its own checks, after the shared ones ([`guide.md`](guide.md#hooks) lists the events and what each is given) |
+| `clients.json`, `agent-routes.json`, `permissions/`, `part.env` | Optional: additions or changes to the foundation's inputs, after what its pack adds ([`guide.md`](guide.md#what-a-part-adds)) |
+| `module.mk` | Optional: make targets of its own |
 | `pack/` | Own repo only: the pack, copied by `make sync-module`. Never edited here. A module without `pack/module.env` isn't part of the stack yet |
 | `README.md`, `docs/` | What it is, and what to know before deploying it |
 

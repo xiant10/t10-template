@@ -19,6 +19,7 @@ Shell scripts ask it for settings instead:
     scripts/lib.py version NAME         # one image from the parts' versions.env files
     scripts/lib.py sources              # each module in its own repo: "SRC REPO", one per line
     scripts/lib.py built [ID]           # each module built from src/: "ID SRC SERVICE", one per line
+    scripts/lib.py owned                # the paths a project owns, which template updates leave alone
 """
 import json
 import pathlib
@@ -34,6 +35,9 @@ MODULES = ROOT / "modules"
 SITE = ROOT / "site"
 GENERATED = ROOT / "generated"
 SECRETS = SITE / "secrets"
+# What a project owns: `make template-update` leaves these as the project has them, and `make
+# check` warns about an edit anywhere else. Everything else is the template's.
+OWNED = ("README.md", "modules", "site", "src")
 
 
 def parse_env(text, raw=False):
@@ -73,18 +77,39 @@ def pack_of(folder):
 
 def modules():
     """Each module, as (its folder, its pack folder, the pack's module.env). A folder whose
-    pack has no module.env yet isn't part of the stack."""
+    pack has no module.env yet isn't part of the stack. Fails on a pack in a format this template
+    can't read (PACK_VERSION), or a module whose REQUIRES names a component that's off or a module
+    that isn't here."""
     found = []
     for d in sorted(MODULES.iterdir()) if MODULES.exists() else []:
         if d.is_dir() and (pack_of(d) / "module.env").exists():
             found.append((d, pack_of(d), read_env(pack_of(d) / "module.env")))
+    present = {d.name for d in components()} | {m.get("MODULE_ID") for _, _, m in found}
+    for d, _, m in found:
+        if wiring.pack_version(m) not in wiring.PACK_VERSIONS:
+            sys.exit(f"modules/{d.name}: its pack is version {wiring.pack_version(m)}, and this template reads "
+                     f"{', '.join(wiring.PACK_VERSIONS)}: make template-update, or pin an older image of the module")
+        missing = [n for n in requires(read_env(pack_of(d) / "module.env")) if n not in present]
+        if missing:
+            sys.exit(f"modules/{d.name} needs {', '.join(missing)}: add it to FOUNDATION, or add that module")
     return found
+
+
+def requires(values):
+    """REQUIRES, in a component's part.env or a module's module.env: the parts it needs."""
+    return [n.strip() for n in values.get("REQUIRES", "").split(",") if n.strip()]
+
+
+def part_env(part):
+    """A part's part.env: what it adds to the foundation's lists (lib.LISTS), and for a
+    component, REQUIRES. Any part may have one."""
+    return read_env(part / "part.env")
 
 
 def components(off=False):
     """The foundation's optional components this project runs, from foundation/components/: those
     FOUNDATION names in site/config/settings.env, or else in foundation/config/settings.env, the
-    template's list. With off=True, the ones it leaves out. A component's component.env can name
+    template's list. With off=True, the ones it leaves out. A component's part.env can name
     others it needs in REQUIRES."""
     have = sorted(d for d in COMPONENTS.iterdir() if d.is_dir()) if COMPONENTS.exists() else []
     chosen = read_env(SITE / "config" / "settings.env").get("FOUNDATION")
@@ -95,7 +120,7 @@ def components(off=False):
     if unknown:
         sys.exit(f"FOUNDATION names {', '.join(sorted(unknown))}: the components are {', '.join(d.name for d in have)}")
     for d in have:
-        needs = [n for n in read_env(d / "component.env").get("REQUIRES", "").split(",") if n]
+        needs = requires(part_env(d))
         if d.name in on and not on.issuperset(needs):
             sys.exit(f"the {d.name} component needs {', '.join(sorted(set(needs) - on))}: add it to FOUNDATION, or drop {d.name}")
     return [d for d in have if (d.name in on) != off]
@@ -118,14 +143,21 @@ def parts():
 
 
 SHAPES = ("local", "dev", "prod")
+# The layers each shape has, unless an environment says LAYERS: config/<name>/ and compose/<name>.yml.
+SHAPE_LAYERS = {"local": ["local"], "dev": ["server", "dev"], "prod": ["server", "prod"]}
+
+
+def env_own(env, name):
+    """A value an environment says about itself, before any layering: from site/config/<env>/,
+    or, for one the template has, such as k8s-local, foundation/config/<env>/."""
+    return read_env(SITE / "config" / env / "settings.env").get(name) or read_env(FOUNDATION / "config" / env / "settings.env").get(name)
 
 
 def shape(env):
-    """The template environment env is built on: itself for local, dev and prod, else its SHAPE,
-    from site/config/<env>/ or, for one the template has, such as k8s-local, foundation/config/<env>/."""
+    """The template environment env is built on: itself for local, dev and prod, else its SHAPE."""
     if env in SHAPES:
         return env
-    value = read_env(SITE / "config" / env / "settings.env").get("SHAPE") or read_env(FOUNDATION / "config" / env / "settings.env").get("SHAPE")
+    value = env_own(env, "SHAPE")
     if value not in SHAPES:
         sys.exit(f"{env}: set SHAPE to one of {', '.join(SHAPES)} in site/config/{env}/settings.env")
     return value
@@ -142,8 +174,15 @@ def target(env):
 
 
 def layers(env):
-    """The names layered over every environment's files, in order: config/<name>/, compose/<name>.yml."""
-    names = {"local": ["local"], "dev": ["server", "dev"], "prod": ["server", "prod"]}[shape(env)]
+    """The names layered over every environment's files, in order: config/<name>/, compose/<name>.yml.
+    Its shape's (SHAPE_LAYERS), or LAYERS in its own settings.env, such as LAYERS=server,staging,
+    which must keep its shape's first layer, local or server; then the environment itself."""
+    names = SHAPE_LAYERS[shape(env)]
+    declared = env_own(env, "LAYERS")
+    if declared:
+        names = [n.strip() for n in declared.split(",") if n.strip()]
+        if SHAPE_LAYERS[shape(env)][0] not in names:
+            sys.exit(f"{env}: LAYERS must include {SHAPE_LAYERS[shape(env)][0]}, which every {shape(env)}-shaped environment needs")
     return names + ([env] if env not in names else [])
 
 
@@ -319,7 +358,10 @@ def secret_env():
 def grant(pack, m):
     """What a module's agent tools need, as (actions, audience): its catalog's agent block, the
     one place a module says it. module.env's GRANT_ACTIONS and GRANT_AUDIENCE may add to it.
-    scripts/render.py gives it to the module's agent, its runtimes and the harnesses."""
+    scripts/render.py gives it to the module's agents, its runtimes and the harnesses. A module
+    without tools needs nothing."""
+    if not wiring.has(m, "tools"):
+        return [], None
     agent = json.loads((pack / "permissions" / f"{m['MODULE_ID']}.yaml").read_text()).get("agent", {})
     actions = list(dict.fromkeys(agent.get("actions", []) + [a for a in m.get("GRANT_ACTIONS", "").split(",") if a]))
     return actions, agent.get("audience") or m.get("GRANT_AUDIENCE") or m["SERVICE"]
@@ -358,6 +400,26 @@ def finish(note=""):
 # What the deployment bundle copies from each part, beside what scripts/render.py writes.
 BUNDLED = ("compose", "config", "scripted", "pack", "init-db.sh", "module-init-db.sh", "backup.sh")
 
+# The foundation's comma lists a part can add to, in its part.env; render.py writes each into
+# modules.env as MODULE_<NAME>, which foundation/compose/base.yml appends to the foundation's own.
+LISTS = ("GRANT_ACTIONS", "GRANT_AUDIENCES", "TOOL_SERVERS", "TOOL_MODULE_SERVERS", "WORKBENCH_URLS", "APP_URLS")
+
+# When each part's hooks/<event>.sh or .py runs (docs/guide.md#hooks).
+HOOK_EVENTS = ("post-up", "seed-demo", "smoke", "check", "pre-deploy", "post-deploy")
+
+
+def hooks(event):
+    """Each part's hooks/<event>.sh and hooks/<event>.py, in part order, as (part, file)."""
+    if event not in HOOK_EVENTS:
+        sys.exit(f"{event} isn't a hook: they're {', '.join(HOOK_EVENTS)}")
+    return [(part, part / "hooks" / f"{event}{ext}") for part in parts() for ext in (".sh", ".py")
+            if (part / "hooks" / f"{event}{ext}").is_file()]
+
+
+def module_of(part):
+    """The module.env of a module's part, or None for any other part."""
+    return next((m for d, _, m in modules() if d == part), None)
+
 
 if __name__ == "__main__":
     if sys.argv[1:2] == ["shape"] and len(sys.argv) == 3:
@@ -373,6 +435,8 @@ if __name__ == "__main__":
     elif sys.argv[1:2] == ["built"] and len(sys.argv) <= 3:
         for b in built(sys.argv[2] if len(sys.argv) == 3 else None):
             print(*b)
+    elif sys.argv[1:] == ["owned"]:
+        print(*OWNED)
     elif sys.argv[1:2] == ["setting"] and len(sys.argv) == 4:
         value = settings(sys.argv[2]).get(sys.argv[3])
         sys.exit(f"{sys.argv[3]} is not set for {sys.argv[2]}") if value is None else print(value)

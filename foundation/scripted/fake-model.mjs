@@ -1,7 +1,8 @@
 // A scripted OpenAI-compatible model, so the stack can be checked with no provider key.
 // Adapted from t10-quickstart's scripted/fake-model.mjs. Each module may name a tool to call,
 // in a SCRIPTED_TOOL_<ID> variable its compose/scripted.yml sets: {"tool": suffix, "args": {…}}.
-// When a user turn offers a tool whose name ends with one of those suffixes, it calls it, then
+// When a user turn offers a tool whose name ends with one of those suffixes, it calls it (with
+// several modules, the one whose tool's first word the user's text names, as `make smoke` does), then
 // quotes what the tool returned, which completes one agent loop through ai-gateway-llm, a
 // harness, ai-gateway-tools and the module. Otherwise it replies with fixed text.
 // /seen lists identity headers it received, so a check can prove none reach a provider.
@@ -20,7 +21,9 @@ createServer(async (req, res) => {
 	res.writeHead(200, { "content-type": "text/event-stream" });
 	const chunk = (delta, finish_reason = null) => `data: ${JSON.stringify({ id: "c", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
 	const names = tools.map((t) => t.function?.name).filter(Boolean);
-	const pick = scripted.map((s) => ({ ...s, name: names.find((n) => n.endsWith(s.tool)) })).find((s) => s.name);
+	const offered = scripted.map((s) => ({ ...s, name: names.find((n) => n.endsWith(s.tool)) })).filter((s) => s.name);
+	const text = JSON.stringify(last.content ?? "").toLowerCase();
+	const pick = offered.find((s) => text.includes(`[${s.tool.split("_")[0]}]`)) ?? offered[0];
 	if (last.role === "user" && pick) {
 		const call = { index: 0, id: "call_1", type: "function", function: { name: pick.name, arguments: JSON.stringify(pick.args ?? {}) } };
 		return res.end(`${chunk({ role: "assistant", tool_calls: [call] })}${chunk({}, "tool_calls")}data: [DONE]\n\n`);

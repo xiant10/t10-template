@@ -15,13 +15,17 @@ How it plugs into the foundation isn't written here: scripts/render.py works tha
 module.env on every run (scripts/wiring.py), so a template update reaches every module. Its
 folder holds only what's particular to it: its image pin, its settings, and any change it needs.
 
-Without REPO, its code is in this project: src/<ID>/ gets a small working service in Go, from
-scripts/scaffold/src/, with its pack in module/. It runs with the next `make up` and passes
-`make smoke` as it is.
+Without REPO, its code is in this project: src/<ID>/ gets a small working service from
+scripts/scaffold/<SCAFFOLD>/, with its pack in module/. SCAFFOLD (in the environment, `make
+new-module SCAFFOLD=…`) picks the language; go, the default, is the one there is. Another is a
+folder beside it with the same tokens (__id__, __ID__, __Id__, __service__, __port__), a
+Dockerfile with a `test` stage, and a service that keeps the contract in docs/module.md. It runs
+with the next `make up` and passes `make smoke` as it is.
 
 With REPO, its code is in that repo, and modules/<id>/ does nothing until `make sync-module
 MODULE=<id>` copies the pack out of its image: a module without a pack isn't part of the stack.
 """
+import os
 import pathlib
 import re
 import sys
@@ -106,12 +110,12 @@ services:
       SCRIPTED_TOOL_{U}: '{{"tool": "{id}_whoami", "args": {{}}}}'
 """,
 }
-SCAFFOLD = pathlib.Path(__file__).resolve().parent / "scaffold" / "src"
+SCAFFOLDS = pathlib.Path(__file__).resolve().parent / "scaffold"
 FIRST_PORT = 18100
 
 
-def scaffold_src(dest, names):
-    """src/<id>/ from scripts/scaffold/src/, with __id__ and the like in names and files filled in."""
+def scaffold_src(dest, names, scaffold):
+    """src/<id>/ from scripts/scaffold/<scaffold>/, with __id__ and the like in names and files filled in."""
     tokens = {"__service__": names["service"], "__ID__": names["U"], "__Id__": names["Id"], "__id__": names["id"],
               "__port__": str(names["port"])}
 
@@ -120,9 +124,9 @@ def scaffold_src(dest, names):
             text = text.replace(k, v)
         return text
 
-    for f in sorted(SCAFFOLD.rglob("*")):
+    for f in sorted(scaffold.rglob("*")):
         if f.is_file() and f.name != ".DS_Store":
-            out = dest / sub(str(f.relative_to(SCAFFOLD)))
+            out = dest / sub(str(f.relative_to(scaffold)))
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(sub(f.read_text()))
 
@@ -154,6 +158,10 @@ def main(argv):
     if not re.fullmatch(r"[a-z][a-z0-9-]*", service):
         sys.exit(f"{service}: a SERVICE is lowercase letters, digits and dashes, starting with a letter")
     in_project = not repo
+    scaffold = SCAFFOLDS / (os.environ.get("SCAFFOLD") or "go")
+    if in_project and not (scaffold / "module" / "module.env").exists():
+        have = sorted(d.name for d in SCAFFOLDS.iterdir() if (d / "module" / "module.env").exists())
+        sys.exit(f"SCAFFOLD={scaffold.name}: there's no scripts/scaffold/{scaffold.name}/; the scaffolds are {', '.join(have)}")
     # Code in the project is in src/<id>/, beside modules/<id>/; a checkout keeps its repo's name.
     src_name = mid if in_project else service
     folder = lib.MODULES / mid
@@ -171,7 +179,7 @@ def main(argv):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(text.format(**names))
     if in_project:
-        scaffold_src(src, names)
+        scaffold_src(src, names, scaffold)
         print(f"""made src/{src_name}/, its code, and modules/{mid}/, its deployment ({service}, port {port}). Next:
   1. make test MODULE={mid} && make up && make smoke: it runs as it is.
   2. Make it yours: its tools in src/{src_name}/tools.go, its permissions in src/{src_name}/module/ (docs/module.md).

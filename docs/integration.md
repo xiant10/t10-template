@@ -7,7 +7,7 @@ The rule: **a module is proven alone before it meets the foundation.** A failure
 | Gate | Command | Needs | Proves |
 | --- | --- | --- | --- |
 | 1. Unit | `make test MODULE=<id>` | Docker only | Its own code: tools, API, data logic, with auth-server stood in for by `module.Fake` |
-| 2. Alone | `make contract MODULE=<id>` | Docker only: the module and its own Postgres | It keeps the module contract by itself: its pack agrees with itself, and its service answers what every module must, with a person's and an agent's tokens |
+| 2. Alone | `make contract MODULE=<id>` | Docker only: the module and its own Postgres | It keeps the module contract by itself: its pack is a version this template reads and agrees with itself, and its service answers what every module must, with a person's and an agent's tokens, for the capabilities it has |
 | 3. Integrated | `make up`, `make smoke` | The whole foundation | It plugs in: its accounts, grants, catalog, clients, agent and route work with the real auth-server, gateways and agent; its agent answers a turn whose tool call reaches it |
 | 4. Server | `make release`, `make check ENV=<env>`, `make deploy`, `make smoke ENV=<env>` | A host | The released image is the code that passed, with the environment's real addresses and secrets |
 
@@ -37,8 +37,8 @@ So `curl -H 'Authorization: Bearer person' http://127.0.0.1:48100/v1/access` wor
 
 `make contract` (`scripts/contract.py`) then checks:
 
-- **Its pack**, without running anything: `module.env` has every key and follows the names its ID sets; the catalog is the module's, its `agent` block names the module's actions and its service as the audience; its agent signs in as its runtime and reads `<ID>_AUTH_CLIENT_SECRET`; its OAuth clients name that runtime and use its public URL and web client secret; its Dockerfile ships the pack at `/module`.
-- **Its service**, running alone: ready; `/v1/module` and `/v1/access` for a person, refused without a token and for an agent; its tools listed over MCP without a token, each named for the module, each callable by an agent holding only the catalog's actions, and refused without a token, for a person's own token, and from a page.
+- **Its pack**, without running anything: `module.env` has every key (`PACK_VERSION`, one this template reads, and `CAPABILITIES` among them) and follows the names its ID sets; the catalog is the module's; with `tools`, its `agent` block names the module's actions and its service as the audience; with `agent`, each agent signs in as its runtime and reads its secret's variable, and its OAuth clients name each runtime; with `web`, its web client uses its public URL and web client secret; its Dockerfile ships the pack at `/module`.
+- **Its service**, running alone: ready; `/v1/module` and `/v1/access` for a person, refused without a token and for an agent; with `tools`, its tools listed over MCP without a token, each named for the module, each callable by an agent holding only the catalog's actions, and refused without a token, for a person's own token, and from a page.
 
 The commonest mistake it catches: a tool whose action isn't in the catalog's `agent` block. Its unit tests pass, but alone, as in the stack, the agent isn't granted it, and `make contract` names the tool and the fix.
 

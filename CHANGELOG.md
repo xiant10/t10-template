@@ -4,6 +4,24 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.6.0 (Nov 16, 2026)
+
+Extending without editing the template: every part adds to the foundation the same way, a module says what it has, and a project has its own hooks and commands ([`docs/guide.md`](docs/guide.md#what-a-part-adds), [`docs/module.md`](docs/module.md#what-it-has)).
+
+- **Every part adds the same way.** Any part, `site/` included, can have `clients.json`, `agent-routes.json`, `permissions/`, `public.json` and `part.env` (additions to the foundation's lists, `WORKBENCH_URLS` and the like). So a project adds its own OAuth client, such as a mobile or mini-program app, a catalog or an agent route in `site/`, without a module. A client or runtime with `"_merge": true` changes one already defined, such as adding a redirect URI to `t10-workbench`. A module's additions from its pack come just before its own folder's, so `modules/<id>/` and `site/` can change them too. `runtime_grants` are given once every part is in, so one can name a runtime a later part defines.
+- **A module says what it has.** `module.env` gets `CAPABILITIES`, of `web`, `tools`, `agent` and `database`, and each one adds only its own wiring, secrets, list entries, checks and smoke steps. A module without `web` needs no public address, web client or session key; one without `tools` isn't on the tools gateway or in the harnesses' grants. `AGENTS` lists several agents, each with its own runtime, route, grant and secret (`<AGENT>_AUTH_CLIENT_SECRET` beyond the first). `SERVICES` adds services from the same image, such as a worker, with the standard settings, secrets and server limits. `REQUIRES` names components or modules it needs, which `make check` and every command enforce.
+- **Pack versions.** `PACK_VERSION=1` in `module.env` says which pack format it's written in; the template refuses one it can't read, so a module in its own repo can't silently meet a template that reads its pack differently. A pack without it, or without `CAPABILITIES`, reads as before (web, tools, a database unless `DATABASE=false`, an agent when `AGENT` is set).
+- **Hooks for every part.** `hooks/<event>.sh` or `.py` in any part, run in part order: `post-up` (after `make up`), `seed-demo`, `smoke`, `check`, `pre-deploy` and `post-deploy`. `scripts/hook.py` runs them; a `smoke` or `check` hook in Python gets the same helpers a module's `hooks/smoke.py` always had.
+- **A project's own commands.** The Makefile includes `site/project.mk` and each `modules/<id>/module.mk`, which are the project's, and `make help` lists their targets. `make help` now prints names correctly whatever files it reads.
+- **Layers for an environment.** `LAYERS=server,staging` in `site/config/<env>/settings.env` sets the layers it reads, keeping `local` or `server` first; without it, its shape's as before.
+- **One list of what a project owns,** `lib.OWNED`, which `make template-update` and `make check` both read.
+- **Scaffolds by language.** `scripts/scaffold/src/` is now `scripts/scaffold/go/`, and `make new-module SCAFFOLD=<lang>` picks one; `go` is the default and the only one so far.
+- Components' `component.env` is now `part.env`, as for every part.
+- With several modules, the scripted model calls the tool of the module a turn names (`make smoke` puts `[<id>]` in its prompt), so each module agent's turn reaches its own module; before, every agent called the first module's tool, which its grant refuses.
+- `make check` stops with one clear failure when the bundle doesn't render, such as for a new module whose secrets `make up` hasn't made yet.
+
+**In a project:** add `PACK_VERSION=1` and `CAPABILITIES=web,tools,agent,database` (without what the module doesn't have) to each `src/<id>/module/module.env`, and for a module with `DATABASE=false`, drop that line and leave `database` out of `CAPABILITIES`; `make contract` now requires both keys, and refuses `DATABASE` beside `CAPABILITIES`. Optionally, replace `AGENT`, `AGENT_TITLE` and `AGENT_RUNTIME` with `AGENTS=<agent>` and `AGENT_TITLE_<AGENT>=…` as `make new-module` now writes; the old keys still work. A module in its own repo gets the same keys in its image's pack with its next release. Move anything a project kept in an edited template file (a Makefile target, a client added to `foundation/clients.json`, a step added to a script) to `site/project.mk`, `site/clients.json` or `site/hooks/`. Check with `make contract MODULE=<id>` for each module, then `make verify`.
+
 ## v0.5.0 (Nov 16, 2026)
 
 Kubernetes on this machine ([`docs/guide.md`](docs/guide.md#kubernetes-on-this-machine)).

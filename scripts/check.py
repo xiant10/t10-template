@@ -6,28 +6,33 @@
 2. The environment's secrets are complete, and no prod value is a dev default.
 3. No secret's name is set in any part's config/, and no Compose file writes one: each
    service gets its own from the parts' secrets.json (a project's own file only warns).
-4. Grants agree, as the foundation's check-module-agents.py requires: the actions in each
-   catalog's agent block reached the harnesses, its agent's own grant, and every runtime
-   clients.yaml gives its tools to. render.py puts them there; this catches a pack it can't.
+4. Grants agree, as the foundation's check-module-agents.py requires: for each module with
+   tools, the actions in its catalog's agent block reached the harnesses, each of its agents' own
+   grant, and every runtime clients.yaml gives its tools to. render.py puts them there; this
+   catches a pack it can't.
 5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
    module built from src/ needs `make release` first.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
    `make deploy` can copy it to a host as it is. On a server, every service rotates its logs and
    has a memory limit. With TARGET=k8s, its Kubernetes objects build with kustomize, and no
    secret's value is in them (scripts/kube.py).
-7. In a project with a `template` git remote, a warning for each template file it edited,
-   since `make template-update` may conflict there. Never a failure.
+7. Each part's hooks/check.py, run in here with check, ENV, bundle and run, and as `module`
+   its module.env for a module's; or hooks/check.sh, one check that passes when it exits 0.
+8. In a project with a `template` git remote, a warning for each template file it edited
+   (anything outside lib.OWNED), since `make template-update` may conflict there. Never a failure.
 """
 import json
 import os
 import pathlib
 import re
+import runpy
 import shutil
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib  # noqa: E402
+import wiring  # noqa: E402
 
 ENV = os.environ.get("ENV", "local")
 check = lib.check
@@ -37,8 +42,12 @@ def run(*cmd, **env):
     return subprocess.run(cmd, capture_output=True, text=True, cwd=lib.ROOT, env=dict(os.environ, **env))
 
 
-# 1. Packs. Render first, so clients.yaml below is current.
-run(sys.executable, "-I", "-B", "scripts/render.py", ENV)
+# 1. Packs. Render first, so clients.yaml below is current; nothing else can be checked without it.
+r = run(sys.executable, "-I", "-B", "scripts/render.py", ENV)
+hint = "\n     (a new module's secrets are made by make up, or make secrets-init)" if "is not set" in r.stderr else ""
+check(f"the bundle for {ENV} renders", r.returncode == 0, r.stderr.strip()[-400:] + hint)
+if r.returncode != 0:
+    lib.finish()
 for folder in sorted(lib.MODULES.iterdir()) if lib.MODULES.exists() else []:
     if folder.is_dir() and not (lib.pack_of(folder) / "module.env").exists():
         how = f"{lib.pack_of(folder).relative_to(lib.ROOT)}/module.env is missing" if lib.in_project(folder) \
@@ -87,15 +96,17 @@ clients_file = bundle / "clients.yaml"
 runtimes = {r["name"]: r for r in json.loads(clients_file.read_text().split("\n", 1)[1])["runtimes"]} if clients_file.exists() else {}
 module_lists = lib.read_env(bundle / "modules.env")
 for folder, pack, m in lib.modules():
+    if not wiring.has(m, "tools"):
+        continue
     actions, audience = lib.grant(pack, m)
     want = set(actions)
     check(f"{folder.name}: the harnesses hold what its tools need",
           want <= set(module_lists.get("MODULE_GRANT_ACTIONS", "").split(","))
           and audience in module_lists.get("MODULE_GRANT_AUDIENCES", "").split(","), f"{sorted(want)}, {audience}")
-    if m.get("AGENT"):
-        agent = bundle / folder.relative_to(lib.ROOT) / "pack" / "agents" / m["AGENT"] / "agent.json"
+    for a in wiring.agents(m):
+        agent = bundle / folder.relative_to(lib.ROOT) / "pack" / "agents" / a["name"] / "agent.json"
         grants = json.loads(agent.read_text()).get("grants", {})
-        check(f"{folder.name}: its agent's own grant holds them and the audience",
+        check(f"{folder.name}: its agent {a['name']}'s own grant holds them and the audience",
               want <= set(grants.get("actions", "").split(",")) and audience in grants.get("audiences", "").split(","), str(grants))
     fragment = json.loads((pack / "clients.fragment.json").read_text())
     names = [n for n in fragment.get("runtime_grants", {}).get("runtimes", []) if n not in lib.runtimes_off()]
@@ -147,10 +158,19 @@ if lib.target(ENV) == "k8s":
         leaked = sorted(k for k, v in lib.secret_values(ENV).items() if len(v) >= 8 and v in r.stdout)
         check("no secret's value is in them", not leaked, ", ".join(leaked))
 
-# 7. Template files edited in this project.
+# 7. Each part's own checks.
+for part, hook in lib.hooks("check"):
+    where = hook.relative_to(lib.ROOT)
+    if hook.suffix == ".py":
+        runpy.run_path(str(hook), init_globals=dict(check=check, ENV=ENV, bundle=lib.GENERATED / ENV, run=run, module=lib.module_of(part)))
+    else:
+        r = run("sh", str(where), ENV=ENV, T10_PART=str(part.relative_to(lib.ROOT)), T10_MODULE=(lib.module_of(part) or {}).get("MODULE_ID", ""))
+        check(str(where), r.returncode == 0, (r.stdout + r.stderr).strip()[-400:])
+
+# 8. Template files edited in this project.
 base = run("git", "merge-base", "HEAD", "template/main")
 if base.returncode == 0:
-    edited = run("git", "diff", "--name-only", base.stdout.strip(), "--", ".", ":!README.md", ":!modules", ":!site", ":!src").stdout.split()
+    edited = run("git", "diff", "--name-only", base.stdout.strip(), "--", ".", *(f":!{p}" for p in lib.OWNED)).stdout.split()
     for f in edited:
         print(f"warn {f} is a template file, edited here, so template updates may conflict: change it in the template instead, or for a setting, override it from site/")
 

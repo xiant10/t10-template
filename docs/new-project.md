@@ -86,6 +86,7 @@ The service already does what every module must ([`module.md`](module.md#its-ser
 | Its agent's instructions | `src/<id>/module/agents/<id>/base.md` |
 | Its settings, and secrets beyond the standard ones | `modules/<id>/config/` and `modules/<id>/secrets.json` |
 | Its demo data, extra checks | `modules/<id>/hooks/seed-demo.sh`, `hooks/smoke.py` |
+| What it has: web app, tools, agents, database; more agents or a worker | `CAPABILITIES`, `AGENTS`, `SERVICES` in `src/<id>/module/module.env` ([`module.md`](module.md#what-it-has)) |
 
 The loop while you work:
 
@@ -107,6 +108,8 @@ Never edit `foundation/` or a Compose file. Put the value in `site/`:
 | One service, one environment | `site/config/<env>/<service>.env` |
 | Ports, public addresses, deploy host | `site/config/<env>/settings.env` |
 | A different image than the template pins | `site/versions.env`, as a deliberate exception |
+| An OAuth client, catalog or agent route of its own, or a change to the foundation's | `site/clients.json`, `site/permissions/`, `site/agent-routes.json` ([`guide.md`](guide.md#what-a-part-adds)) |
+| A step before or after a command; a command of its own | `site/hooks/<event>.sh` ([`guide.md`](guide.md#hooks)); `site/project.mk` |
 
 `make config-show SVC=<service>` shows each value and the file it came from. Secrets never go among settings; `make check` refuses them.
 

@@ -6,12 +6,14 @@
 # DEV=1 also builds each module in a repo of its own from its checkout in src/ (local only).
 # SCRIPTED=1 uses a scripted model, so nothing needs LLM_API_KEY. On local and k8s-local it's on
 # by itself while site/secrets/<env>.env has no LLM_API_KEY; SCRIPTED= (empty) turns it off.
+# A project adds its own commands in site/project.mk, and a module in modules/<id>/module.mk
+# (included at the end); a `## ` comment after a target lists it in `make help`.
 
 ENV ?= local
 ifeq ($(shell python3 -I -B scripts/lib.py shape $(ENV) 2>/dev/null),local)
 SCRIPTED ?= $(if $(shell sed -n 's/^LLM_API_KEY=..*/x/p' site/secrets/$(ENV).env 2>/dev/null),,1)
 endif
-export ENV DEV SCRIPTED MODULE IMAGE CONFIRM
+export ENV DEV SCRIPTED MODULE IMAGE CONFIRM SCAFFOLD
 COMPOSE := scripts/compose.sh
 PY := python3 -I -B
 # The linters `make lint` runs, in Docker so nothing needs installing.
@@ -21,7 +23,7 @@ SHELLCHECK := koalaman/shellcheck:v0.10.0
 .PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate secrets-key secrets-set secrets-edit lint test-template alone alone-down contract backup backup-pull restore
 
 help: ## List the commands
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
+	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
 doctor: ## Whether this machine can run the project: Docker, Compose, Python, free ports (and kubectl, for k8s-local)
 	@$(PY) scripts/doctor.py
@@ -45,10 +47,12 @@ render: ## Write the bundle in generated/<env>/ that up and deploy run; every co
 # of FOUNDATION, go too.
 # --build: builds what has a build: section, each module whose code is in src/ (and with DEV=1,
 # the others' checkouts); Docker's cache makes it quick when nothing changed. Then publishes the
-# route document if it changed, so a new module's agent is routed (upstream U12).
+# route document if it changed, so a new module's agent is routed (upstream U12). Then each
+# part's hooks/post-up.
 up: ## Start the stack and wait until it's healthy; modules in src/ are built first
 	@$(COMPOSE) up -d --wait --wait-timeout 300 --remove-orphans --build
 	@$(MAKE) --no-print-directory routes-publish
+	@$(PY) scripts/hook.py post-up
 
 down: ## Stop the stack and keep its data (down-all also deletes the data)
 	@$(COMPOSE) down --remove-orphans
@@ -65,7 +69,7 @@ logs: ## Follow logs: make logs SVC=agent-ti
 deploy: ## Copy generated/<env>/ to its host and start it there (ENV=prod; runs check first)
 	@scripts/deploy.sh
 
-seed-demo: ## Sample accounts, then each module's hooks/seed-demo.sh (local only)
+seed-demo: ## Sample accounts, then each part's hooks/seed-demo (local only)
 	@scripts/seed-demo.sh
 
 smoke: ## Check the running stack end to end
@@ -114,7 +118,7 @@ routes-publish: ## Publish generated/<env>/agent-routes.json to t10-agent-contro
 		[ $$s -eq 0 ] || echo "$$out" | grep -q "changes nothing" || { echo "$$out" | grep -q "until it.s retired" && \
 		echo "warn: a removed module'"'"'s agent pool is still routed, so the routes weren'"'"'t published (upstream U17); on local, make down-all && make up starts afresh"; }'
 
-new-module: ## A new module, its code in src/<id>/: ID=crm (SERVICE=t10-crm PORT=… optional; REPO=… for its own repo)
+new-module: ## A new module, its code in src/<id>/: ID=crm (SERVICE=t10-crm PORT=… SCAFFOLD=go optional; REPO=… for its own repo)
 	@$(PY) scripts/new-module.py "$(ID)" "$(SERVICE)" "$(PORT)" $(REPO)
 
 template-update: ## Merge the template's latest (git remote template); README.md, modules/, site/ and src/ stay yours
@@ -154,3 +158,6 @@ lint: ## Lint the template's Python and shell scripts, in Docker
 test-template: ## The template's own tests: its scripts (tests/) and its Go kit (kit/go/), no stack needed
 	@$(PY) tests/test_template.py $(if $(V),-v)
 	@docker build -q kit/go >/dev/null && echo "kit/go: vet and tests passed"
+
+# A project's own commands, and each module's: the project's files, which template updates leave alone.
+-include site/project.mk $(wildcard modules/*/module.mk)

@@ -6,16 +6,18 @@ reachable and auth-server refuses dev mode, so it checks step 1 through the publ
 that auth-server serves its signing key there, then stops: signing in there needs a smoke account
 of its own (docs/plan.md).
 
-1. Every published service answers /readyz or /health, each module at its public address.
+1. Every published service answers /readyz or /health, each module at its public address (one
+   without `web` at its local port, and on a server not at all).
 2. The bootstrap admin signs in (password grant: dev mode only).
 3. Each module answers /v1/module and /v1/access for that person.
-4. auth-server's landing data lists each module's app for the tenant.
+4. auth-server's landing data lists each module's web app for the tenant.
 5. Every agent in the route document answers session.create by name through ai-gateway-agent,
-   and each module's agent answers a turn. With the scripted model and a module's
+   and each module agent answers a turn. With the scripted model and a module's
    compose/scripted.yml, that turn's tool call reaches the module through ai-gateway-tools.
-6. Each module's modules/<id>/hooks/smoke.py, if it has one. It runs in here, with check, http,
-   compose, agent, open_session, turn, tool_calls, token, cfg, SCRIPTED, the module's module.env
-   as `module`, and its address as `url`.
+6. Each part's hooks/smoke.py, if it has one, in part order. It runs in here, with check, http,
+   compose, agent, open_session, turn, tool_calls, token, cfg and SCRIPTED, and for a module's,
+   its module.env as `module` and its address as `url` (both None for any other part). A part's
+   hooks/smoke.sh is one check, which passes when it exits 0.
 7. With the scripted model (SCRIPTED=1), no identity header reached the model.
 """
 import json
@@ -31,6 +33,7 @@ import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib  # noqa: E402
+import wiring  # noqa: E402
 
 ENV = os.environ.get("ENV", "local")
 SCRIPTED = bool(os.environ.get("SCRIPTED"))
@@ -42,7 +45,17 @@ public = lambda name: cfg[name].rstrip("/")
 AUTH = port("AUTH_PORT") if LOCAL else public("AUTH_PUBLIC_URL")
 # Caddy's own CA signs *.localhost, which a test of the dev shape on this machine uses.
 UNVERIFIED = ssl._create_unverified_context()
-MODULES = [(m, cfg[m["PUBLIC_URL_SETTING"]].rstrip("/"), folder) for folder, _, m in lib.modules()]
+
+
+def module_url(m):
+    """Where a module answers from here: its web app's public address, or else, on this machine,
+    its local port. None for a module without `web` on a server, where Caddy doesn't publish it."""
+    if wiring.has(m, "web"):
+        return cfg[wiring.public_url_setting(m)].rstrip("/")
+    return f"http://127.0.0.1:{cfg[wiring.upper(m['MODULE_ID']) + '_PORT']}" if LOCAL else None
+
+
+MODULES = [(m, module_url(m), folder) for folder, _, m in lib.modules() if module_url(m)]
 check = lib.check
 
 
@@ -169,7 +182,8 @@ for m, url, _ in MODULES:
 status, body = http(AUTH + "/v1/me/homes", token)
 apps = [a["id"] for t in (body.get("workbench", {}).get("tenants", []) if status == 200 else []) for a in t.get("apps", [])]
 for m, _, _ in MODULES:
-    check(f"auth-server lists the {m.get('AGENT_TITLE', m['MODULE_ID'])} app", m["MODULE_ID"] in apps, f"{status} {apps}")
+    if wiring.has(m, "web"):
+        check(f"auth-server lists the {m['MODULE_ID']} app", m["MODULE_ID"] in apps, f"{status} {apps}")
 
 # 5. Every agent in the route document is reachable by name through ai-gateway-agent, and each
 # module's answers a turn, calling the module's tool with the scripted model.
@@ -177,23 +191,28 @@ routes = json.loads((lib.GENERATED / ENV / "agent-routes.json").read_text())
 for name in sorted(routes["agents"]):
     sid = open_session(name)
     check(f"ai-gateway-agent routes {name}", sid.startswith(name + "."), sid)
-for m, _, folder in MODULES:
-    if not m.get("AGENT"):
-        continue
-    session, messages = turn(m["AGENT"], "What can you tell me about my access here?")
+for m, a, folder in [(mod, a, f) for mod, _, f in MODULES for a in wiring.agents(mod)]:
+    # The module's ID in brackets: with several modules, the scripted model calls this one's tool.
+    session, messages = turn(a["name"], f"What can you tell me about my access here? [{m['MODULE_ID']}]")
     replies = [x.get("text", "") for x in messages if x.get("role") == "assistant" and x.get("text")]
-    check(f"the {m['AGENT_TITLE']} agent answers a turn", bool(replies), f"{messages}"[-300:] if session else "no session opened")
-    if SCRIPTED and session and (folder / "compose" / "scripted.yml").exists():
+    check(f"the {a['title']} agent answers a turn", bool(replies), f"{messages}"[-300:] if session else "no session opened")
+    if SCRIPTED and session and wiring.has(m, "tools") and (folder / "compose" / "scripted.yml").exists():
         calls = tool_calls(session)
         check(f"its tool call reached {m['SERVICE']} through ai-gateway-tools",
               any(c.get("target", "").startswith(f"server:{m['MODULE_ID']}/") and c.get("outcome") == "ok" for c in calls), f"{calls}"[-300:])
 
-# 6. Each module's own checks.
-for m, url, folder in MODULES:
-    hook = folder / "hooks" / "smoke.py"
-    if hook.exists():
+# 6. Each part's own checks.
+urls = {folder: url for _, url, folder in MODULES}
+for part, hook in lib.hooks("smoke"):
+    m = lib.module_of(part)
+    if hook.suffix == ".py":
         runpy.run_path(str(hook), init_globals=dict(check=check, http=http, compose=compose, agent=agent, open_session=open_session, turn=turn, tool_calls=tool_calls,
-                                                     token=token, cfg=cfg, SCRIPTED=SCRIPTED, module=m, url=url))
+                                                     token=token, cfg=cfg, SCRIPTED=SCRIPTED, module=m, url=urls.get(part)))
+    else:
+        r = subprocess.run(["sh", str(hook)], cwd=lib.ROOT, capture_output=True, text=True,
+                           env=dict(os.environ, ENV=ENV, T10_PART=str(part.relative_to(lib.ROOT)), T10_MODULE=(m or {}).get("MODULE_ID", ""),
+                                    T10_COMPOSE=str(lib.ROOT / "scripts" / "compose.sh")))
+        check(str(hook.relative_to(lib.ROOT)), r.returncode == 0, (r.stdout + r.stderr).strip()[-400:])
 
 # 7. No identity header reached the model.
 if SCRIPTED:

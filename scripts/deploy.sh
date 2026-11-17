@@ -6,7 +6,8 @@
 #   ENV=prod scripts/deploy.sh
 #
 # The host needs Docker with Compose 2.24 or later, rsync, and `docker login ghcr.io` for
-# any private module image. Nothing else from this repo goes there.
+# any private module image. Nothing else from this repo goes there. Each part's
+# hooks/pre-deploy and hooks/post-deploy run here, before the copy and once it's up (scripts/hook.py).
 set -eu
 cd "$(dirname "$0")/.."
 env=${ENV:-local}
@@ -19,6 +20,7 @@ ssh_opts=$(setting DEPLOY_SSH)
 [ "$host" != TODO ] && [ "$dir" != TODO ] || { echo "set DEPLOY_HOST and DEPLOY_DIR in site/config/$env/settings.env" >&2; exit 1; }
 
 ENV=$env python3 -I -B scripts/check.py
+ENV=$env python3 -I -B scripts/hook.py pre-deploy
 # The bundle with its secrets, decrypted in memory from site/secrets/<env>.enc.env, only until
 # it's copied: the trap renders it again without them, so they stay only on the host.
 trap 'python3 -I -B scripts/render.py "$env"' EXIT
@@ -30,3 +32,4 @@ ssh $ssh_opts "$host" "mkdir -p '$dir'"
 rsync -a --inplace --delete -e "ssh $ssh_opts" "generated/$env/" "$host:$dir/"
 # shellcheck disable=SC2086
 ssh $ssh_opts "$host" "'$dir/compose.sh' up -d --wait --wait-timeout 300 --remove-orphans && '$dir/compose.sh' exec -T caddy caddy reload --config /etc/caddy/Caddyfile"
+ENV=$env python3 -I -B scripts/hook.py post-deploy

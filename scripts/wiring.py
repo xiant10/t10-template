@@ -8,7 +8,7 @@ into the bundle on every run instead, as generated/<env>/modules/<id>/standard/<
 just before the module's own compose/<name>.yml. A module's folder then holds only what's
 particular to it, and can override anything here (Compose merges its files over these).
 
-    base      every environment: the one-shots <id>-db and <id>-seed, its agent, its service
+    base      every environment: the one-shots <id>-db and <id>-seed, its agents, its services
     local     local: its port published on 127.0.0.1, and for code in the project, built from src/
     server    a server (dev, prod): rotated logs and a memory limit, as every service there
     build     DEV=1, for a module in its own repo: built from its checkout in src/
@@ -17,14 +17,24 @@ And its standard secrets, which lib.inventory() adds before the module's own sec
 
 What module.env says, beside the keys docs/module.md lists:
 
-    DATABASE=false    no database: no <id>-db, no <ID>_DB_PASSWORD, no DATABASE_URL
-    AGENT= (empty)    no agent: nothing for t10-agents or agent-ti
+    PACK_VERSION      the pack format it's written for; PACK_VERSIONS are the ones this template reads
+    CAPABILITIES      what it has, of web, tools, agent and database (capabilities(), below); each
+                      one adds its wiring, secrets, checks and smoke steps, and nothing else does
+    AGENTS            its agents, for `agent` (agents(), below)
+    SERVICES          more services beside SERVICE, from the same image, such as a worker
+    REQUIRES          foundation components or other modules it needs (lib.modules checks them)
 
 Names follow from the ID and the accounts: an account's secret is its name in capitals with
-_SECRET (t10-crm: T10_CRM_SECRET), and its agent.json reads its runtime's as <ID>_AUTH_CLIENT_SECRET.
+_SECRET (t10-crm: T10_CRM_SECRET), and its first agent's agent.json reads its runtime's as
+<ID>_AUTH_CLIENT_SECRET, any other's as <AGENT>_AUTH_CLIENT_SECRET.
 """
 import json
 import re
+
+# The pack formats this template reads. A pack without PACK_VERSION was written before v0.6.0,
+# and is 1. A new format adds its number here, and reads the older ones as they are.
+PACK_VERSIONS = ("1",)
+CAPABILITIES = ("web", "tools", "agent", "database")
 
 
 def upper(name):
@@ -36,125 +46,199 @@ def account_secret(account):
     return upper(account) + "_SECRET"
 
 
+def pack_version(m):
+    return m.get("PACK_VERSION", "1")
+
+
+def capabilities(m):
+    """What a module has, from CAPABILITIES. A pack without it (written before v0.6.0) has web and
+    tools, a database unless DATABASE=false, and an agent when AGENT names one."""
+    if "CAPABILITIES" in m:
+        if "DATABASE" in m:
+            raise SystemExit(f"{m['MODULE_ID']}: module.env has CAPABILITIES and DATABASE: drop DATABASE, and say database in CAPABILITIES or not")
+        have = {c.strip() for c in m["CAPABILITIES"].split(",") if c.strip()}
+    else:
+        have = {"web", "tools"}
+        have |= {"database"} if m.get("DATABASE", "true").lower() != "false" else set()
+        have |= {"agent"} if m.get("AGENTS") or m.get("AGENT") else set()
+    unknown = have - set(CAPABILITIES)
+    if unknown:
+        raise SystemExit(f"{m['MODULE_ID']}: CAPABILITIES has {', '.join(sorted(unknown))}; it takes {', '.join(CAPABILITIES)}")
+    return have
+
+
+def has(m, capability):
+    return capability in capabilities(m)
+
+
 def has_database(m):
-    return m.get("DATABASE", "true").lower() != "false"
+    return has(m, "database")
+
+
+def public_url_setting(m):
+    """The setting that holds its web app's public address: PUBLIC_URL_SETTING, or <ID>_PUBLIC_URL."""
+    return m.get("PUBLIC_URL_SETTING") or upper(m["MODULE_ID"]) + "_PUBLIC_URL"
+
+
+def agents(m):
+    """Its agents, for `agent`: [{name, title, runtime, secret}]. AGENTS lists them (a pack before
+    v0.6.0 has one, AGENT). Each one's title is AGENT_TITLE_<AGENT>, else its name in title case;
+    its runtime account AGENT_RUNTIME_<AGENT>, else agent-ti-<agent>; the first one's may be
+    AGENT_TITLE and AGENT_RUNTIME. `secret` is the variable its agent.json reads its runtime's
+    secret from on agent-ti: <ID>_AUTH_CLIENT_SECRET for the first, <AGENT>_AUTH_CLIENT_SECRET
+    for any other."""
+    if not has(m, "agent"):
+        return []
+    names = [a.strip() for a in (m.get("AGENTS") or m.get("AGENT") or "").split(",") if a.strip()]
+    if not names:
+        raise SystemExit(f"{m['MODULE_ID']}: CAPABILITIES has agent, so AGENTS names at least one")
+    out = []
+    for i, name in enumerate(names):
+        k, first = upper(name), i == 0
+        out.append({"name": name,
+                    "title": m.get(f"AGENT_TITLE_{k}") or (first and m.get("AGENT_TITLE")) or name.replace("-", " ").title(),
+                    "runtime": m.get(f"AGENT_RUNTIME_{k}") or (first and m.get("AGENT_RUNTIME")) or f"agent-ti-{name}",
+                    "secret": f"{upper(m['MODULE_ID'])}_AUTH_CLIENT_SECRET" if first else f"{k}_AUTH_CLIENT_SECRET"})
+    return out
+
+
+def services(m):
+    """Its services: SERVICE, which keeps the module contract, then SERVICES, more from the same
+    image (a module's compose/base.yml gives each its command), such as a worker."""
+    more = [s.strip() for s in m.get("SERVICES", "").split(",") if s.strip() and s.strip() != m["SERVICE"]]
+    return [m["SERVICE"], *more]
 
 
 def accounts(m):
     return [a for a in m.get("SERVICE_ACCOUNTS", m["SERVICE"]).split(",") if a]
 
 
-def compose(m, name, in_project, src=None, env_file=True):
-    """A module's standard Compose file for one name (base, local, build) as a dict, or None."""
+def compose(m, name, in_project, src=None, configured=()):
+    """A module's standard Compose file for one name (base, local, build) as a dict, or None.
+    configured: the services with settings in the bundle, env/<service>.env."""
     mid, u, service, port = m["MODULE_ID"], upper(m["MODULE_ID"]), m["SERVICE"], m["PORT"]
     db = mid.replace("-", "_")
     built = {"image": f"{service}:dev", "build": f"../../src/{src}"}
     if in_project:
         # Code in the project builds with the template's kit, kit/go/ (its go.mod's replace).
         built["build"] = {"context": f"../../src/{src}", "additional_contexts": {"kit": "../../kit/go"}}
+    more = services(m)[1:]
     if name == "local":
         svc = {"ports": [f"127.0.0.1:${{{u}_PORT}}:{port}"]}
-        return {"services": {service: {**(built if in_project else {}), **svc}}}
+        return {"services": {service: {**(built if in_project else {}), **svc}, **{s: dict(built) for s in more if in_project}}}
     if name == "build":
-        return None if in_project else {"services": {service: built}}
+        return None if in_project else {"services": {s: dict(built) for s in services(m)}}
     if name == "server":
         # As every service on a server (foundation/compose/server.yml): rotated logs, a memory limit.
         limits = {"logging": {"driver": "local", "options": {"max-size": "${LOG_MAX_SIZE}", "max-file": "${LOG_MAX_FILES}"}},
                   "mem_limit": "${MEM_LIMIT}"}
-        names = [service, f"{mid}-seed"] + ([f"{mid}-db"] if has_database(m) else [])
+        names = [*services(m), f"{mid}-seed"] + ([f"{mid}-db"] if has_database(m) else [])
         return {"services": {n: dict(limits) for n in names}}
     if name != "base":
         return None
 
-    services = {}
-    app = {
-        "image": f"${{T10_{u}}}",
-        "restart": "unless-stopped",
-        **({"env_file": f"./env/{service}.env"} if env_file else {}),
-        # Its secrets come from secrets(), below, as every service's do.
-        "environment": {
-            "AUTH_ISSUER": "${AUTH_PUBLIC_URL}",
-            "AUTH_URL": "http://auth-server:8081",
-            f"{u}_PUBLIC_URL": f"${{{u}_PUBLIC_URL}}",
-            # Turns go through ai-gateway-agent, which routes Agent-Name: <AGENT> to agent-ti.
-            "AGENT_URL": "http://ai-gateway-agent:18090/agent",
-        },
-        "read_only": True,
-        "tmpfs": ["/tmp"],
-        "healthcheck": {"test": ["CMD", "wget", "-q", "--spider", f"http://127.0.0.1:{port}/readyz"],
-                        "interval": "5s", "timeout": "3s", "retries": 12},
-        "depends_on": {"auth-server": {"condition": "service_healthy"}},
-    }
+    services_ = {}
+
+    def runs(svc):
+        return {
+            "image": f"${{T10_{u}}}",
+            "restart": "unless-stopped",
+            **({"env_file": f"./env/{svc}.env"} if svc in configured else {}),
+            # Its secrets come from secrets(), below, as every service's do.
+            "environment": {
+                "AUTH_ISSUER": "${AUTH_PUBLIC_URL}",
+                "AUTH_URL": "http://auth-server:8081",
+                **({f"{u}_PUBLIC_URL": f"${{{u}_PUBLIC_URL}}"} if has(m, "web") else {}),
+                # Turns go through ai-gateway-agent, which routes Agent-Name: <AGENT> to agent-ti.
+                "AGENT_URL": "http://ai-gateway-agent:18090/agent",
+            },
+            "read_only": True,
+            "tmpfs": ["/tmp"],
+            "depends_on": {"auth-server": {"condition": "service_healthy"}},
+        }
+
+    app = runs(service)
+    # Only SERVICE keeps the module contract, so only it has /readyz.
+    app["healthcheck"] = {"test": ["CMD", "wget", "-q", "--spider", f"http://127.0.0.1:{port}/readyz"],
+                          "interval": "5s", "timeout": "3s", "retries": 12}
+    app = {k: app[k] for k in ("image", "restart", "env_file", "environment", "read_only", "tmpfs", "healthcheck", "depends_on") if k in app}
+    others = {s: runs(s) for s in more}
 
     if has_database(m):
         # Its database and login, made if missing and the password set, on every start, so a
         # module joins a stack whose database already exists. Its own init-db.sh, if it has one,
         # runs after, with the same environment.
-        services[f"{mid}-db"] = {
+        services_[f"{mid}-db"] = {
             "image": "${POSTGRES_IMAGE}",
             "entrypoint": ["sh", "-c", "sh /init-db.sh && { [ ! -f /module-init-db.sh ] || sh /module-init-db.sh; }"],
             "environment": {"PGHOST": "postgres", "PGUSER": "t10", "MODULE_DB": db},
             "volumes": ["./foundation/module-init-db.sh:/init-db.sh:ro"],
             "depends_on": {"postgres": {"condition": "service_healthy"}},
         }
-        app["depends_on"][f"{mid}-db"] = {"condition": "service_completed_successfully"}
+        for svc in (app, *others.values()):
+            svc["depends_on"][f"{mid}-db"] = {"condition": "service_completed_successfully"}
 
     # Its accounts in auth-server, SERVICE_ACCOUNTS (upstream U2: auth-setup's list is fixed).
     names = accounts(m)
-    services[f"{mid}-seed"] = {
+    services_[f"{mid}-seed"] = {
         "image": "${T10_AUTH_SERVER}",
         "entrypoint": ["/bin/sh", "-c", "set -eu\n" + "".join(
             f'AUTHCTL_SERVICE_SECRET="$${account_secret(a)}" authctl service-add --if-missing --name={a}\n' for a in names)],
         "depends_on": {"seed": {"condition": "service_completed_successfully"}},
     }
-    services["auth-server"] = {"depends_on": {f"{mid}-seed": {"condition": "service_completed_successfully"}}}
+    services_["auth-server"] = {"depends_on": {f"{mid}-seed": {"condition": "service_completed_successfully"}}}
 
-    agent = m.get("AGENT")
-    if agent:
-        # Its agent, which t10-agents copies into agent-ti's agents; its runtime's secret, which
+    if agents(m):
+        # Its agents, which t10-agents copies into agent-ti's agents; each runtime's secret, which
         # its agent.json reads, is in secrets().
-        services["t10-agents"] = {"volumes": [f"./modules/{mid}/pack/agents/{agent}:/module-agents/{agent}:ro"]}
+        services_["t10-agents"] = {"volumes": [f"./modules/{mid}/pack/agents/{a['name']}:/module-agents/{a['name']}:ro" for a in agents(m)]}
 
-    services[service] = app
+    services_[service] = app
+    services_.update(others)
     # The tools gateway lists its /mcp for the harnesses; workbench reads its manifest.
-    for waiting in ("ai-gateway-tools", "workbench"):
-        services[waiting] = {"depends_on": {service: {"condition": "service_healthy"}}}
-    return {"services": services}
+    for waiting, needs in (("ai-gateway-tools", "tools"), ("workbench", "web")):
+        if has(m, needs):
+            services_[waiting] = {"depends_on": {service: {"condition": "service_healthy"}}}
+    return {"services": services_}
 
 
 def secrets(m):
     """A module's standard secrets, in the form of foundation/secrets.json, each with the
-    services that get it (`env`), and its uses of the foundation's POSTGRES_PASSWORD."""
+    services that get it (`env`), and its uses of the foundation's POSTGRES_PASSWORD. SERVICES
+    get what SERVICE gets, but for its web app's."""
     mid, u, service = m["MODULE_ID"], upper(m["MODULE_ID"]), m["SERVICE"]
     db = mid.replace("-", "_")
     out = []
     pg = {f"{mid}-seed": {"DATABASE_URL": "postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable"}}
     if has_database(m):
         pg[f"{mid}-db"] = {"PGPASSWORD": "${POSTGRES_PASSWORD}"}
-        out.append({"name": f"{u}_DB_PASSWORD", "generate": "hex32", "consumers": [service, f"postgres role {db}"],
+        url = f"postgres://{db}:${{{u}_DB_PASSWORD}}@postgres:5432/{db}?sslmode=disable"
+        out.append({"name": f"{u}_DB_PASSWORD", "generate": "hex32", "consumers": [*services(m), f"postgres role {db}"],
                     "rotate": f"Change the value, then make up: {mid}-db sets the role's password, and {service} restarts with it.", "rotation": "replace",
                     "env": {f"{mid}-db": {"MODULE_DB_PASSWORD": f"${{{u}_DB_PASSWORD}}", f"{u}_DB_PASSWORD": f"${{{u}_DB_PASSWORD}}"},
-                            service: {"DATABASE_URL": f"postgres://{db}:${{{u}_DB_PASSWORD}}@postgres:5432/{db}?sslmode=disable"}}})
+                            **{s: {"DATABASE_URL": url} for s in services(m)}}})
     out.append({"name": "POSTGRES_PASSWORD", "env": pg})
-    runtime = m.get("AGENT_RUNTIME") if m.get("AGENT") else None
+    runtimes = {a["runtime"]: a for a in agents(m)}
     for a in accounts(m):
-        user = f"agent-ti ({mid} agent)" if a == runtime else service if a == service else a
-        roll = "agent-ti" if a == runtime else service if a == service else "what uses it"
+        agent = runtimes.get(a)
+        user = f"agent-ti ({agent['name']} agent)" if agent else service if a == service else a
+        roll = "agent-ti" if agent else service if a == service else "what uses it"
         ref = f"${{{account_secret(a)}}}"
         env = {f"{mid}-seed": {account_secret(a): ref}}
         if a == service:
-            env[service] = {"AUTH_CLIENT_SECRET": ref}
-        if a == runtime:
-            env["agent-ti"] = {f"{u}_AUTH_CLIENT_SECRET": ref}
+            env.update({s: {"AUTH_CLIENT_SECRET": ref} for s in services(m)})
+        if agent:
+            env["agent-ti"] = {agent["secret"]: ref}
         out.append({"name": account_secret(a), "generate": "hex32", "consumers": [user, f"auth-server account {a}"],
                     "rotate": f"authctl service-rotate --name={a}, roll {roll}, then service-finish.", "rotation": f"account:{a}", "env": env})
-    out.append({"name": f"{u}_WEB_CLIENT_SECRET", "generate": "hex32",
-                "consumers": [f"{service} (AUTH_WEB_CLIENT_SECRET)", "secret_sha256 in clients.yaml"],
-                "rotate": f"Change, re-render clients.yaml, roll auth-server and {service} together.", "rotation": "replace",
-                "env": {service: {"AUTH_WEB_CLIENT_SECRET": f"${{{u}_WEB_CLIENT_SECRET}}"}}})
-    out.append({"name": f"{u}_SESSION_KEY", "generate": "b64key", "consumers": [service],
-                "rotate": f"Change and roll {service}. Everyone signs in again.", "rotation": "replace",
-                "env": {service: {f"{u}_SESSION_KEY": f"${{{u}_SESSION_KEY}}"}}})
+    if has(m, "web"):
+        out.append({"name": f"{u}_WEB_CLIENT_SECRET", "generate": "hex32",
+                    "consumers": [f"{service} (AUTH_WEB_CLIENT_SECRET)", "secret_sha256 in clients.yaml"],
+                    "rotate": f"Change, re-render clients.yaml, roll auth-server and {service} together.", "rotation": "replace",
+                    "env": {service: {"AUTH_WEB_CLIENT_SECRET": f"${{{u}_WEB_CLIENT_SECRET}}"}}})
+        out.append({"name": f"{u}_SESSION_KEY", "generate": "b64key", "consumers": [service],
+                    "rotate": f"Change and roll {service}. Everyone signs in again.", "rotation": "replace",
+                    "env": {service: {f"{u}_SESSION_KEY": f"${{{u}_SESSION_KEY}}"}}})
     return out
 
 

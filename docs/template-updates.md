@@ -11,7 +11,7 @@ A project is a git clone of the template with two remotes:
 | `origin` | The project's own repo | Push all your work here |
 | `template` | `t10-template` | Only ever merge from it, with `make template-update` |
 
-The two never step on each other because each owns its own paths:
+The two never step on each other because each owns its own paths (`lib.OWNED` in `scripts/lib.py`):
 
 | The project's: template updates never touch them | The template's: a project never edits them |
 | --- | --- |
@@ -44,6 +44,9 @@ Change only the project's paths, and commit and push to `origin` as usual. When 
 | An image the template pins | `site/versions.env`, as a deliberate exception |
 | How a module plugs in | `modules/<id>/compose/<name>.yml`, which overrides its generated wiring |
 | A secret the project adds | `site/secrets.json`, and its value in `site/secrets/<env>.env` |
+| An OAuth client, catalog, agent route or workbench entry of its own, or a change to the foundation's | `site/clients.json` (`"_merge": true` to change one), `site/permissions/`, `site/agent-routes.json`, `site/part.env` ([`guide.md`](guide.md#what-a-part-adds)) |
+| A step before or after a command | `site/hooks/<event>.sh` or `.py` ([`guide.md`](guide.md#hooks)) |
+| A command of its own | `site/project.mk`, or a module's `modules/<id>/module.mk` |
 
 `make config-show SVC=<service>` shows which file each value came from. `make check` warns about every template file the project has edited, since that's where an update can conflict.
 

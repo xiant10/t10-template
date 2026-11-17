@@ -1,7 +1,7 @@
 #!/bin/sh
 # Merges the template's latest into this project: everything the template owns comes from it,
-# and what the project owns (README.md, modules/, site/, src/) stays the project's, so those never
-# conflict. The template is the git remote `template`, as `git clone -o template` names it.
+# and what the project owns (lib.OWNED: README.md, modules/, site/, src/) stays the project's, so
+# those never conflict. The template is the git remote `template`, as `git clone -o template` names it.
 #
 #   scripts/template-update.sh            # merges the template's latest release, v<x.y.z>
 #   REF=main scripts/template-update.sh   # or a branch or tag: its unreleased work, or an older release
@@ -29,10 +29,11 @@ if git merge-base --is-ancestor "$ref" HEAD; then
 	exit 0
 fi
 before=$(git rev-parse HEAD)
+owned=$(python3 -I -B scripts/lib.py owned)
 git merge -q --no-ff --no-commit "$ref" >/dev/null 2>&1 || true
 
 # What the project owns stays as it was. A file the template adds there is kept, as a starting point.
-for path in README.md modules site src; do
+for path in $owned; do
 	if git cat-file -e "$before:$path" 2>/dev/null; then
 		git checkout "$before" -- "$path"
 	fi

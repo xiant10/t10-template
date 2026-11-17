@@ -14,5 +14,8 @@ outside `site/` and `modules/` comes from the template and is never edited here.
 | `versions.env` | Optional: a pin this project needs to differ from `foundation/versions.env` or a module's, as a deliberate exception |
 | `docs/` | This project's own plan, decisions and open questions; how the template works is in `../docs/` |
 | `compose/<env>.yml` | Rarely: Compose changes for this project only, layered after the others |
+| `clients.json`, `agent-routes.json`, `permissions/`, `part.env` | Optional: OAuth clients, agent routes, catalogs and foundation list entries of this project's own, or changes to the foundation's (`"_merge": true` on a client); `../docs/guide.md#what-a-part-adds` |
+| `hooks/<event>.sh` or `.py` | Optional: steps around a command: `post-up`, `seed-demo`, `smoke`, `check`, `pre-deploy`, `post-deploy` (`../docs/guide.md#hooks`) |
+| `project.mk` | Optional: this project's own make targets, which the Makefile includes and `make help` lists |
 
 `make config-show SVC=<service>` shows which layer each value comes from.

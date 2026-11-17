@@ -1,6 +1,6 @@
 # Business modules on the published t10 foundation
 
-Nov 15, 2026 · Revised Nov 16 (v0.1.0) to describe what's built: the Compose stack, which passes `make check` and `make smoke`, and the split into a template any project can reuse. Kubernetes and prod aren't built yet. They're in [`plan.md`](plan.md). Day-to-day use is in [`guide.md`](guide.md).
+Nov 15, 2026 · Revised Nov 16 (v0.1.0, and v0.6.0 for extending it) to describe what's built: the Compose stack, which passes `make check` and `make smoke`, and the split into a template any project can reuse. Kubernetes and prod aren't built yet. They're in [`plan.md`](plan.md). Day-to-day use is in [`guide.md`](guide.md).
 
 A project made from this template deploys one or more business modules on the t10 foundation. It uses the foundation only through its published images and the configuration those images read. It changes no foundation source, builds no foundation image and needs no foundation checkout. The first such project deploys `t10-property`; the examples below use a module `<id>` with service `<service>`, and `crm` where a name helps.
 
@@ -14,6 +14,7 @@ A project made from this template deploys one or more business modules on the t1
 - This repo is a template: nothing outside `modules/`, `site/` and `src/` names a module or a project.
 - A module's code lives in the project's `src/` by default, or in a repo of its own when several projects share it (Nov 16).
 - What every module shares is the template's, not copied into each module: its wiring into the foundation, its standard secrets, the single place its grants are said, and the Go code every module's service needs (Nov 16, v0.1.0).
+- A project extends the template without editing it: every part adds to the foundation's inputs the same way, a module says which capabilities it has, and a project has its own hooks and make targets (Nov 16, v0.6.0; [below](#extending-without-editing-the-template)).
 
 ## Goals
 
@@ -92,15 +93,27 @@ Some facts only the module knows: its permissions, its agent, the actions its to
 
 The project keeps a copy, rather than reading the image at deploy time, because the clients file is a reviewed security file whose changes should show in a diff, and because kustomize will need files when it builds manifests.
 
-## Configuration that several modules add to
+## Extending without editing the template
 
-Some foundation inputs are single values that each module adds to. `scripts/render.py` builds them from each pack on every run, into `generated/<env>/`:
+The ownership rule only works if a project never needs to edit a template file. Up to v0.5.0 several things pushed it to: an OAuth client or catalog of the project's own could only come from a module's pack, a module had to be one service with a web app, tools, a database and at most one agent, a step around a command meant editing a script, and a command of its own meant editing the Makefile. v0.6.0 makes each of them a place the project owns:
 
-- **`clients.yaml`**: `foundation/clients.json` merged with each pack's `clients.fragment.json`. For existing runtimes it unions the actions and audiences. `${VAR}`, `"${sha256:VAR}"` and `"${bool:VAR}"` are filled from settings and secrets, so a web client's secret and its hash can't disagree. The files are JSON, which auth-server reads as YAML, so the scripts need nothing beyond Python's standard library.
-- **`permissions/`**: `foundation/permissions/` plus each pack's catalogs.
-- **`agent-routes.json`**: `foundation/agent-routes.json` plus a pool for each module's agent.
+- **Every part adds the same way.** The inputs many parts add to (clients, routes, catalogs, the foundation's lists, public addresses) are read from the same files in every part, in part order, with a module's worked-out additions just before its own folder's. `site/` adds a client like a module does, and changes one with `"_merge": true` ([`guide.md`](guide.md#what-a-part-adds)). One code path also means one place to change when auth-server takes a folder of client files (U3).
+- **Capabilities, not one module shape.** `CAPABILITIES` in `module.env` (`web`, `tools`, `agent`, `database`) switches each one's wiring, secrets, checks and smoke steps, so a tools-only service or a module without a web app is first class; `AGENTS` and `SERVICES` cover several agents and a worker ([`module.md`](module.md#what-it-has)). Flat `KEY=value` lists were enough, so the pack stays a `.env` file the scripts read without a YAML library.
+- **A versioned pack.** Packs in their own repos ship in images that outlive template releases. `PACK_VERSION` lets the template refuse a format it doesn't read rather than misread it; a new format adds a number and keeps reading the old ones.
+- **Hooks and commands.** `hooks/<event>` in any part, and `site/project.mk` and `modules/<id>/module.mk` included by the Makefile ([`guide.md`](guide.md#hooks)).
+- **Environments with their own layers,** `LAYERS`, so a `staging` layer several environments share needs no new shape.
+
+What stays the template's: the order of the parts, the gates, and the module contract, since those are what make a template update safe to take.
+
+## Configuration that several parts add to
+
+Some foundation inputs are single values that each part adds to. `scripts/render.py` builds them from each part, and each module's pack, on every run, into `generated/<env>/`:
+
+- **`clients.yaml`**: `foundation/clients.json` merged with each part's `clients.json` and each pack's `clients.fragment.json`. A second definition is refused unless it says `"_merge": true`, which adds to its lists and replaces the rest; `runtime_grants` union actions and audiences into runtimes once every part is in. `${VAR}`, `"${sha256:VAR}"` and `"${bool:VAR}"` are filled from settings and secrets, so a web client's secret and its hash can't disagree. The files are JSON, which auth-server reads as YAML, so the scripts need nothing beyond Python's standard library.
+- **`permissions/`**: each part's `permissions/` plus each pack's catalogs.
+- **`agent-routes.json`**: `foundation/agent-routes.json`, each part's, plus a pool for each module agent.
 - **Each agent's `agent.json`**, in the bundle's copy of its pack: its grant, with what its tools need added.
-- **`modules.env`**: `MODULE_GRANT_ACTIONS`, `MODULE_GRANT_AUDIENCES`, `MODULE_TOOL_SERVERS`, `MODULE_TOOL_MODULE_SERVERS`, `MODULE_WORKBENCH_URLS` and `MODULE_APP_URLS`. `foundation/compose/base.yml` appends each to its own list, so a module's Compose files hold only the module's own services.
+- **`modules.env`**: `MODULE_GRANT_ACTIONS`, `MODULE_GRANT_AUDIENCES`, `MODULE_TOOL_SERVERS`, `MODULE_TOOL_MODULE_SERVERS`, `MODULE_WORKBENCH_URLS` and `MODULE_APP_URLS`, from each part's `part.env` and each module's pack. `foundation/compose/base.yml` appends each to its own list, so a module's Compose files hold only the module's own services.
 
 What a module's tools need comes from its catalog's `agent` block, and is added to the harnesses' lists, its agent's grant, its own runtimes and the foundation runtimes its fragment's `runtime_grants` names. `make check` reproduces the foundation's `check-module-agents.py` rule on the result: every action in a catalog's `agent` block reached each of them.
 
@@ -178,7 +191,7 @@ Its own `compose/base.yml` holds only the few things particular to it, such as a
 
 **Two switches.** `DEV=1`, above, and `SCRIPTED=1`, which `make` turns on by itself on local while there's no `LLM_API_KEY`. `SCRIPTED=1` adds `foundation/compose/scripted.yml`, which points `ai-gateway-llm` at a scripted model (`foundation/scripted/fake-model.mjs`), so `make up` and `make smoke` work with no `LLM_API_KEY`. A module's own `compose/scripted.yml` names, in `SCRIPTED_TOOL_<ID>`, a tool the scripted model calls, so a turn reaches the module through `ai-gateway-tools`.
 
-**Hooks.** `make seed-demo` adds auth-server's sample accounts, then runs each `modules/<id>/hooks/seed-demo.sh`, which typically runs the module's own seed scripts from `src/` through `scripts/compose.sh`. Local only, because the sample password is published. `make smoke` runs each `modules/<id>/hooks/smoke.py` after its generic checks, such as an assistant turn that follows its tool call.
+**Hooks.** Any part's `hooks/<event>.sh` or `.py` runs at that point of a command, in part order: `post-up`, `seed-demo`, `smoke`, `check`, `pre-deploy`, `post-deploy` ([`guide.md`](guide.md#hooks)). `make seed-demo` adds auth-server's sample accounts, then runs each part's `seed-demo` hook, which for a module typically runs its own seed scripts from `src/` through `scripts/compose.sh`. Local only, because the sample password is published. `make smoke` runs each `smoke` hook after its generic checks, such as an assistant turn that follows a module's tool call.
 
 ## Configuring containers
 
@@ -237,5 +250,7 @@ Three levels, each needing more than the one before: `make test-template` and `m
 | Build foundation images from source | Not what was asked, and it breaks "same image everywhere" |
 | A generator (copier, cookiecutter) or submodule for the template | Another tool to install and learn; a git remote and a clear ownership rule do the same |
 | Copy what every module shares into each module (as before v0.1.0) | A template update can't reach the copies, so a foundation change means the same hand edit in every module |
+| A YAML or JSON module manifest in place of `module.env` | Lists in `KEY=value` say all a module needs (capabilities, agents, services); a manifest would need a parser the scripts don't have and a second format beside the settings files |
+| Plugins in Python that a project registers with the scripts | Code a template update can't see and a project would have to keep working across releases; files and hooks with a fixed interface keep the boundary where `make template-update` can respect it |
 | Publish the Go kit as a Go module in its own repo | A second repo and release cycle to keep in step with the template; the template is private, so every build would need credentials. It moves to the foundation once U16 is done |
 | Remote kustomize bases, or a Helm chart for the platform | See `plan.md` |

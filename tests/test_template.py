@@ -135,6 +135,63 @@ class FoundationOnly(TestCase):
         self.assertIn("auth-server", self.p.compose_config()["services"])
 
 
+class Parts(TestCase):
+    """Every part adds to the foundation's inputs the same way, site/ too."""
+
+    def test_site_adds_and_changes_clients_routes_permissions_and_lists(self):
+        self.p.write("site/clients.json", json.dumps({
+            "clients": [{"id": "wechat-mini", "name": "Mini program", "type": "public", "tenant": "required",
+                         "redirect_uris": ["https://mini.example/cb"]},
+                        {"id": "t10-workbench", "_merge": True, "redirect_uris": ["https://wb.example/auth/callback"]}],
+            "runtime_grants": {"runtimes": ["agent-ti"], "actions": ["site:read"], "audiences": ["site-svc"]}}))
+        self.p.write("site/agent-routes.json", json.dumps({"agents": {"helper": {"title": "Helper", "open": True, "routes": [{"pool": "ti"}]}}}))
+        self.p.write("site/permissions/site.yaml", json.dumps({"module": "site", "prefix": "site", "permissions": []}))
+        self.p.write("site/part.env", "WORKBENCH_URLS=extra=http://extra:1\n")
+        bundle = self.p.render()
+        clients = json.loads((bundle / "clients.yaml").read_text().split("\n", 1)[1])
+        by_id = {c["id"]: c for c in clients["clients"]}
+        self.assertIn("wechat-mini", by_id)
+        self.assertIn("https://wb.example/auth/callback", by_id["t10-workbench"]["redirect_uris"])
+        self.assertGreater(len(by_id["t10-workbench"]["redirect_uris"]), 1)
+        agent_ti = {r["name"]: r for r in clients["runtimes"]}["agent-ti"]
+        self.assertIn("site:read", agent_ti["actions"])
+        self.assertIn("helper", json.loads((bundle / "agent-routes.json").read_text())["agents"])
+        self.assertTrue((bundle / "permissions/site.yaml").exists())
+        self.assertIn("extra=http://extra:1", (bundle / "modules.env").read_text())
+
+    def test_a_second_definition_needs_merge(self):
+        self.p.write("site/clients.json", json.dumps({"clients": [{"id": "t10-workbench", "name": "again"}]}))
+        r = self.p.run(*PY, "scripts/render.py", "local", check=False)
+        self.assertIn("is already defined", r.stderr)
+
+    def test_hooks_from_every_part(self):
+        self.p.write("site/hooks/post-up.sh", 'echo "$T10_PART $ENV" > site/hooks/ran\n')
+        self.p.run(*PY, "scripts/hook.py", "post-up")
+        self.assertEqual(self.p.read("site/hooks/ran"), "site local\n")
+        self.p.write("site/hooks/pre-deploy.py", "import sys; sys.exit(3)\n")
+        r = self.p.run(*PY, "scripts/hook.py", "pre-deploy", check=False)
+        self.assertIn("site/hooks/pre-deploy.py failed (3)", r.stderr)
+
+    def test_layers(self):
+        self.p.write("site/config/uat/settings.env", "SHAPE=prod\nLAYERS=server,staging\n")
+        self.p.write("site/config/staging/t10-collab.env", "FROM_STAGING=1\n")
+        bundle = self.p.render("uat")
+        self.assertIn("FROM_STAGING=1", (bundle / "env/t10-collab.env").read_text())
+        self.p.write("site/config/uat/settings.env", "SHAPE=prod\nLAYERS=staging\n")
+        r = self.p.run(*PY, "scripts/lib.py", "setting", "uat", "PROJECT_NAME", check=False)
+        self.assertIn("LAYERS must include server", r.stderr)
+
+    def test_owned(self):
+        self.assertEqual(self.p.script("lib.py", "owned").stdout.split(), ["README.md", "modules", "site", "src"])
+
+    def test_project_makefile(self):
+        self.p.write("site/project.mk", "hello: ## Say hello\n\t@echo hello from the project\n")
+        self.assertIn("hello from the project", self.p.run("make", "-s", "hello").stdout)
+        listed = self.p.run("make", "-s", "help").stdout
+        self.assertRegex(listed, r"(?m)^  hello +Say hello$")
+        self.assertRegex(listed, r"(?m)^  up +Start the stack")
+
+
 class NewModule(TestCase):
     def test_writes_only_what_is_particular_to_it(self):
         self.p.new_module("crm")
@@ -150,6 +207,10 @@ class NewModule(TestCase):
         self.p.new_module("shop")
         self.assertIn("PORT=18101", self.p.read("src/shop/module/module.env"))
         self.assertIn("SHOP_PORT=38101", self.p.read("modules/shop/config/local/settings.env"))
+
+    def test_unknown_scaffold(self):
+        r = self.p.run(*PY, "scripts/new-module.py", "crm", check=False, SCAFFOLD="cobol")
+        self.assertIn("the scaffolds are go", r.stderr)
 
     def test_refuses_bad_or_existing(self):
         r = self.p.run(*PY, "scripts/new-module.py", "Bad_ID", check=False)
@@ -200,13 +261,99 @@ class StandardWiring(TestCase):
         self.p.script("secrets.py", "init", "local")
         self.assertRegex(self.p.read("site/secrets/local.env"), r"(?m)^CRM_DATA_KEY=.+$")
 
+    def capabilities(self, value, extra=""):
+        env = self.p.read("src/crm/module/module.env")
+        self.p.write("src/crm/module/module.env", env.replace("CAPABILITIES=web,tools,agent,database", f"CAPABILITIES={value}") + extra)
+
     def test_without_database(self):
-        self.p.write("src/crm/module/module.env", self.p.read("src/crm/module/module.env") + "DATABASE=false\n")
+        self.capabilities("web,tools,agent")
         bundle = self.p.render()
         base = (bundle / "modules/crm/standard/base.yml").read_text()
         self.assertNotIn("crm-db", base)
         self.assertNotIn("CRM_DB_PASSWORD", base)
         self.assertNotIn("CRM_DB_PASSWORD", self.p.read("site/secrets/local.env"))
+
+    def test_a_pack_before_capabilities(self):
+        """A pack written before v0.6.0: no PACK_VERSION or CAPABILITIES, AGENT and DATABASE=false."""
+        env = self.p.read("src/crm/module/module.env")
+        env = "\n".join(line for line in env.splitlines() if not line.startswith(("PACK_VERSION", "CAPABILITIES", "AGENTS", "AGENT_TITLE_")))
+        self.p.write("src/crm/module/module.env", env + "\nAGENT=crm\nAGENT_TITLE=Crm\nAGENT_RUNTIME=agent-ti-crm\nDATABASE=false\n")
+        bundle = self.p.render()
+        self.assertNotIn("crm-db", (bundle / "modules/crm/standard/base.yml").read_text())
+        self.assertIn('"crm"', (bundle / "agent-routes.json").read_text())
+        self.assertIn("MODULE_TOOL_MODULE_SERVERS=crm", (bundle / "modules.env").read_text())
+
+    def test_capabilities_and_database_together_are_refused(self):
+        self.capabilities("web,tools,agent", "DATABASE=false\n")
+        r = self.p.run(*PY, "scripts/render.py", "local", check=False)
+        self.assertIn("drop DATABASE", r.stderr)
+
+    def test_unknown_pack_version_is_refused(self):
+        env = self.p.read("src/crm/module/module.env")
+        self.p.write("src/crm/module/module.env", env.replace("PACK_VERSION=1", "PACK_VERSION=99"))
+        r = self.p.run(*PY, "scripts/render.py", "local", check=False)
+        self.assertIn("its pack is version 99", r.stderr)
+
+    def test_tools_only(self):
+        """No web app, agent or database: none of their wiring, secrets or list entries."""
+        self.capabilities("tools")
+        fragment = json.loads(self.p.read("src/crm/module/clients.fragment.json"))
+        self.p.write("src/crm/module/clients.fragment.json", json.dumps({**fragment, "clients": []}))
+        bundle = self.p.render()
+        lists = (bundle / "modules.env").read_text()
+        self.assertIn("MODULE_TOOL_MODULE_SERVERS=crm", lists)
+        self.assertIn("MODULE_WORKBENCH_URLS=automations=", lists)
+        self.assertNotIn("crm=http://t10-crm", lists.split("MODULE_WORKBENCH_URLS=")[1].split("\n")[0])
+        self.assertNotIn("MODULE_APP_URLS=crm", lists)
+        self.assertNotIn('"crm"', (bundle / "agent-routes.json").read_text())
+        base = (bundle / "modules/crm/standard/base.yml").read_text()
+        self.assertNotIn("CRM_PUBLIC_URL", base)
+        self.assertNotIn("workbench:", base)
+        self.assertNotIn("t10-agents", base)
+        values = self.p.read("site/secrets/local.env")
+        self.assertNotRegex(values, r"(?m)^CRM_WEB_CLIENT_SECRET=")
+        self.assertNotRegex(values, r"(?m)^CRM_SESSION_KEY=")
+
+    def test_web_only(self):
+        """No tools: nothing for the tools gateway or the harnesses' grants."""
+        self.capabilities("web,database")
+        bundle = self.p.render()
+        lists = (bundle / "modules.env").read_text()
+        self.assertIn("MODULE_TOOL_MODULE_SERVERS=\n", lists)
+        self.assertIn("MODULE_GRANT_ACTIONS=\n", lists)
+        self.assertIn("MODULE_APP_URLS=crm=", lists)
+        self.assertNotIn("ai-gateway-tools", (bundle / "modules/crm/standard/base.yml").read_text())
+
+    def test_two_agents_and_a_worker(self):
+        self.capabilities("web,tools,agent,database", "AGENTS=crm,crm-intake\nAGENT_TITLE_CRM_INTAKE=Intake\nSERVICES=t10-crm-worker\n"
+                          "SERVICE_ACCOUNTS=t10-crm,agent-ti-crm,agent-ti-crm-intake\n")
+        shutil.copytree(self.p.dir / "src/crm/module/agents/crm", self.p.dir / "src/crm/module/agents/crm-intake")
+        bundle = self.p.render()
+        routes = json.loads((bundle / "agent-routes.json").read_text())
+        self.assertEqual(routes["agents"]["crm-intake"]["title"], "Intake")
+        self.assertEqual(routes["pools"]["crm-intake"]["audience"], "agent-ti-crm-intake")
+        intake = json.loads((bundle / "modules/crm/pack/agents/crm-intake/agent.json").read_text())
+        self.assertIn("crm:read", intake["grants"]["actions"].split(","))
+        agent_ti = (bundle / "secrets/agent-ti.env").read_text()
+        self.assertIn("CRM_AUTH_CLIENT_SECRET=S_AGENT_TI_CRM_SECRET", agent_ti)
+        self.assertIn("CRM_INTAKE_AUTH_CLIENT_SECRET=S_AGENT_TI_CRM_INTAKE_SECRET", agent_ti)
+        worker = (bundle / "secrets/t10-crm-worker.env").read_text()
+        self.assertIn("DATABASE_URL=postgres://crm:S_CRM_DB_PASSWORD@", worker)
+        self.assertIn("AUTH_CLIENT_SECRET=S_T10_CRM_SECRET", worker)
+        self.assertNotIn("SESSION_KEY", worker)
+        base = (bundle / "modules/crm/standard/base.yml").read_text()
+        self.assertIn("/module-agents/crm-intake:ro", base)
+        self.assertIn("  t10-crm-worker:\n", base)
+        self.assertIn("  t10-crm-worker:\n", (bundle / "modules/crm/standard/local.yml").read_text())
+        self.assertIn("  t10-crm-worker:\n", (self.p.render("prod") / "modules/crm/standard/server.yml").read_text())
+
+    def test_requires(self):
+        self.p.write("site/config/settings.env", "PROJECT_NAME=test\nFOUNDATION=\n")
+        self.capabilities("web,tools,agent,database", "REQUIRES=livekit\n")
+        r = self.p.run(*PY, "scripts/render.py", "local", check=False)
+        self.assertIn("modules/crm needs livekit", r.stderr)
+        self.p.write("site/config/settings.env", "PROJECT_NAME=test\nFOUNDATION=assistant,livekit\n")
+        self.p.render()
 
     def test_grant_said_once_reaches_every_place(self):
         catalog = self.p.dir / "src/crm/module/permissions/crm.yaml"
