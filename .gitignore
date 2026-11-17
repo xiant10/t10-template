@@ -1,5 +1,5 @@
-# src/ holds each module's source. A module built in this project is committed there; one in a
-# repo of its own is cloned there by `make clone`, which keeps it out of git in .git/info/exclude.
+# modules/<id>/src/ holds each module's source. A module built in this project is committed there;
+# one in a repo of its own is cloned there by `make clone`, which keeps it out of git in .git/info/exclude.
 
 # Written by scripts, never edited.
 /generated/

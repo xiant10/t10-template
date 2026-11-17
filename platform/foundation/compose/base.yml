@@ -1,0 +1,315 @@
+# The whole t10 foundation, from published images only. The same services as t10-quickstart's
+# compose.all.yml (dc5d0bc), with every image pinned in versions.env, every setting that
+# isn't wiring moved to foundation/config/, and every path through ai-gateway:
+# clients reach harnesses through ai-gateway-agent, harnesses reach models through
+# ai-gateway-llm and tools through ai-gateway-tools. Run it through `make up`.
+#
+# This is the core every project runs. The optional pieces, such as LiveKit and the console, are
+# components in foundation/components/<name>/, each adding its own services over this file; a
+# project picks the ones it runs with FOUNDATION in site/config/settings.env.
+# Nothing here names a module or a project: modules/<id>/compose/ and site/ add those.
+# Nothing here differs by environment either: compose/local.yml publishes ports on this
+# machine, and compose/server.yml puts Caddy in front on a server.
+# Paths are relative to the deployment bundle, generated/<env>/, which has the repo's layout:
+# scripts/render.py copies this file there, and its compose.sh passes --project-directory.
+#
+# Wiring stays here, in `environment:`: addresses on the Compose network. Any other setting
+# goes in a part's config/<service>.env (every environment) or config/<env>/<service>.env
+# (one), because `environment:` would override it. scripts/render.py merges those into
+# env/<service>.env, which each service reads.
+# No secret is here. Each part's secrets.json says which service gets each one, under which
+# variable (`env`), and scripts/render.py writes them as secrets/<service>.env, which each
+# service reads after its settings: a service gets only its own.
+#
+# Modules plug in through the MODULE_* variables and generated/<env>/ files that
+# scripts/render.py writes from each pack. Each is appended to the foundation's own list,
+# so a module never repeats it.
+# One Compose project per environment, so two can share a host.
+name: ${PROJECT_NAME:?set PROJECT_NAME in site/config/settings.env}-${T10_ENV}
+
+x-healthcheck: &health
+  interval: 5s
+  timeout: 3s
+  retries: 12
+
+# Every service that checks tokens: the issuer they expect, and where to reach auth-server.
+x-auth: &auth
+  AUTH_ISSUER: ${AUTH_PUBLIC_URL}
+  AUTH_URL: http://auth-server:8081
+
+# agent-ti, and agent-pi in components/assistant/: how a harness checks tokens, reaches its model through
+# ai-gateway-llm and its tools through ai-gateway-tools.
+x-harness: &harness
+  JWT_JWKS_URL: http://auth-server:8081/.well-known/jwks.json
+  JWT_ISSUER: ${AUTH_PUBLIC_URL}
+  AUTH_URL: http://auth-server:8081
+  LLM_BASE_URL: http://ai-gateway-llm:18080/v1
+  AGENT_CONTROL_URL: http://t10-agent-control:8085
+  TOOL_GATEWAY_URL: http://ai-gateway-tools:18095
+  COLLAB_MCP_URL: http://ai-gateway-tools:18095/mcp/collab
+  KNOWLEDGE_MCP_URL: http://ai-gateway-tools:18095/mcp/knowledge
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: t10
+      POSTGRES_DB: auth
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U t10 -d auth"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - ./platform/foundation/init-db.sh:/docker-entrypoint-initdb.d/10-foundation.sh:ro
+      - postgres-data:/var/lib/postgresql/data
+
+  # Every database, dumped into the backups volume on a schedule (platform/foundation/backup.sh). On by
+  # default on a server (its compose.sh sets COMPOSE_PROFILES=backup); `make backup` runs one
+  # dump anywhere. Its password comes from secrets.json, as every service's does.
+  backup:
+    image: ${POSTGRES_IMAGE}
+    profiles: [backup]
+    restart: unless-stopped
+    entrypoint: ["bash", "/backup.sh"]
+    environment:
+      BACKUP_EVERY: ${BACKUP_EVERY}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS}
+    volumes:
+      - ./platform/foundation/backup.sh:/backup.sh:ro
+      - backups:/backups
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  # One-shot: the first platform admin, and the foundation's service accounts. Modules'
+  # accounts come from their own seed (upstream U2).
+  seed:
+    image: ${T10_AUTH_SERVER}
+    entrypoint: ["auth-setup"]
+    environment:
+      AUTH_SETUP_ADMIN: ${AUTH_SETUP_ADMIN:-admin@acme.example}
+      AUTH_SETUP_TENANT_ID: ${AUTH_SETUP_TENANT_ID:-ten_acme}
+      AUTH_SETUP_TENANT_NAME: ${AUTH_SETUP_TENANT_NAME:-Acme}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  auth-server:
+    image: ${T10_AUTH_SERVER}
+    restart: unless-stopped
+    env_file: ./env/auth-server.env
+    environment:
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL}
+      # Modules with their own web app, for the landing page.
+      AUTH_APP_URLS: ${MODULE_APP_URLS}
+      # Changes with clients.yaml, which it reads only at start, so `make up` recreates it then.
+      T10_CLIENTS_SHA: ${T10_CLIENTS_SHA}
+      AUTH_WORKBENCH_URL: ${WORKBENCH_PUBLIC_URL}
+      # LiveKit, for calls: browsers connect to this, so the published address. The livekit
+      # component sets these; auth-server requires them even without it, so with it off
+      # they're placeholders that nothing reaches (upstream U15). LIVEKIT_API_SECRET's is in
+      # ../secrets.json.
+      LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://livekit.invalid}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-livekit-off}
+    volumes:
+      - ./clients.yaml:/etc/t10-auth/clients.yaml:ro
+      - ./permissions:/etc/t10-auth/permissions:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8081/readyz"]
+      <<: *health
+    depends_on:
+      seed: {condition: service_completed_successfully}
+
+  t10-agent-control:
+    image: ${T10_AGENT_CONTROL}
+    restart: unless-stopped
+    env_file: ./env/t10-agent-control.env
+    environment:
+      <<: *auth
+      WORKBENCH_URL: ${WORKBENCH_PUBLIC_URL}
+      MODEL_GATEWAY_URL: http://ai-gateway-llm:18080
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8085/readyz"]
+      <<: *health
+    depends_on:
+      auth-server: {condition: service_healthy}
+
+  # One-shot: publishes the first route document, foundation/agent-routes.json plus each module's agents,
+  # rendered to generated/<env>/agent-routes.json. Skips if one is live, so a changed document
+  # is published with `make routes-publish`.
+  agent-routes:
+    image: ${T10_AGENT_CONTROL}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if agentctl status | grep -q '^revision [1-9]'; then
+          echo "routes already published"
+        else
+          agentctl import /routes.json --reason "${PROJECT_NAME} routes"
+        fi
+    environment:
+      MODEL_GATEWAY_URL: http://ai-gateway-llm:18080
+    volumes:
+      - ./agent-routes.json:/routes.json:ro
+    depends_on:
+      t10-agent-control: {condition: service_healthy}
+
+  ai-gateway-llm:
+    image: ${T10_AI_GATEWAY}
+    restart: unless-stopped
+    command: ["-config", "/etc/ai-gateway/config.yaml"]
+    env_file: ./env/ai-gateway-llm.env
+    environment:
+      <<: *auth
+      # Tenants' own model keys, which tenant admins and the console manage.
+      AGENT_CONTROL_URL: http://t10-agent-control:8085
+    volumes:
+      - ./platform/foundation/config/ai-gateway-llm/config.yaml:/etc/ai-gateway/config.yaml:ro
+      # Its audit of every model call, kept when the container is recreated.
+      - llm-audit:/var/lib/ai-gateway-llm
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:18080/health"]
+      <<: *health
+    depends_on:
+      t10-agent-control: {condition: service_healthy}
+      tools-state-init: {condition: service_completed_successfully}
+
+  # One-shot: a new named volume belongs to root, and the gateways run as uid 100: the tools
+  # gateway's state and the model gateway's audit. Kubernetes does this with fsGroup.
+  tools-state-init:
+    image: ${T10_AI_GATEWAY}
+    user: "0"
+    entrypoint: ["chown", "-R", "100:101", "/var/lib/ai-gateway-tools", "/var/lib/ai-gateway-llm"]
+    volumes:
+      - tools-state:/var/lib/ai-gateway-tools
+      - llm-audit:/var/lib/ai-gateway-llm
+
+  ai-gateway-tools:
+    image: ${T10_AI_GATEWAY}
+    restart: unless-stopped
+    command: ["-config", "/app/config.tools.yaml"]
+    env_file: ./env/ai-gateway-tools.env
+    environment:
+      <<: *auth
+      # name=audience@url. Harnesses call /mcp/<name>.
+      TOOL_SERVERS: collab=t10-collab@http://t10-collab:8082/mcp,knowledge=t10-knowledge@http://t10-knowledge:18050/mcp${MODULE_TOOL_SERVERS:+,${MODULE_TOOL_SERVERS}}
+      # Offered together at /mcp/modules.
+      TOOL_MODULE_SERVERS: ${MODULE_TOOL_MODULE_SERVERS}
+    volumes:
+      - tools-state:/var/lib/ai-gateway-tools
+    # Healthy only once /mcp/modules lists tools too: it answers 503 for a moment after /health
+    # is up, and a harness that starts then waits minutes to list again (upstream U13).
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -qO /dev/null http://127.0.0.1:18095/health &&
+          { [ -z "$$TOOL_MODULE_SERVERS" ] || wget -qO /dev/null --header 'Content-Type: application/json'
+          --header 'Accept: application/json, text/event-stream'
+          --post-data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' http://127.0.0.1:18095/mcp/modules; }
+      <<: *health
+    depends_on:
+      auth-server: {condition: service_healthy}
+      tools-state-init: {condition: service_completed_successfully}
+
+  t10-collab:
+    image: ${T10_COLLAB}
+    restart: unless-stopped
+    env_file: ./env/t10-collab.env
+    environment:
+      <<: *auth
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8082/readyz"]
+      <<: *health
+    depends_on:
+      auth-server: {condition: service_healthy}
+
+  t10-knowledge:
+    image: ${T10_KNOWLEDGE}
+    restart: unless-stopped
+    env_file: ./env/t10-knowledge.env
+    environment:
+      <<: *auth
+      AGENT_CONTROL_URL: http://t10-agent-control:8085
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:18050/readyz"]
+      <<: *health
+    depends_on:
+      t10-agent-control: {condition: service_healthy}
+
+  # One-shot: fills the agents volume agent-ti reads, with the foundation's own agents from this
+  # image and each module's from its pack, mounted at /module-agents/<agent> by the module. The
+  # image also ships some modules' agents (upstream U6); they're left out, so a project without
+  # that module doesn't load an agent it has no account for.
+  t10-agents:
+    image: ${T10_AGENTS}
+    entrypoint: ["sh", "-euc", "find /target -mindepth 1 -maxdepth 1 -exec rm -rf {} +; cp -R /agents/ti /target/; if [ -d /module-agents ]; then cp -R /module-agents/. /target/; fi; echo agents: $$(ls /target)"]
+    volumes:
+      - agents:/target
+
+  agent-ti:
+    image: ${T10_AGENT_TI}
+    restart: unless-stopped
+    env_file: ./env/agent-ti.env
+    environment:
+      <<: *harness
+      AUTH_ISSUER: ${AUTH_PUBLIC_URL}
+      MODULES_MCP_URL: http://ai-gateway-tools:18095/mcp/modules
+      GRANT_ACTIONS: agent:use,work:read,work:write,work:send,knowledge:read${MODULE_GRANT_ACTIONS:+,${MODULE_GRANT_ACTIONS}}
+      GRANT_AUDIENCES: agent-ti,t10-collab,t10-knowledge,ai-gateway-tools,ai-gateway-llm${MODULE_GRANT_AUDIENCES:+,${MODULE_GRANT_AUDIENCES}}
+    volumes:
+      - agents:/etc/agent-ti/agents:ro
+      - agent-ti-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18120/readyz"]
+      <<: *health
+    depends_on:
+      t10-agents: {condition: service_completed_successfully}
+      ai-gateway-llm: {condition: service_healthy}
+      ai-gateway-tools: {condition: service_healthy}
+
+  ai-gateway-agent:
+    image: ${T10_AI_GATEWAY}
+    restart: unless-stopped
+    command: ["-config", "/app/config.agent.yaml"]
+    env_file: ./env/ai-gateway-agent.env
+    environment:
+      <<: *auth
+      AI_GATEWAY_LLM_URL: http://ai-gateway-llm:18080
+      # Routes come from the published route document (agent-routes), modules' included.
+      AGENT_CONTROL_URL: http://t10-agent-control:8085
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:18090/health"]
+      <<: *health
+    depends_on:
+      agent-routes: {condition: service_completed_successfully}
+      agent-ti: {condition: service_healthy}
+
+  workbench:
+    image: ${T10_WORKBENCH}
+    restart: unless-stopped
+    env_file: ./env/workbench.env
+    environment:
+      AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL}
+      AUTH_URL: http://auth-server:8081
+      WORKBENCH_PUBLIC_URL: ${WORKBENCH_PUBLIC_URL}
+      # Conversations go through ai-gateway-agent, never straight to a harness. It answers
+      # agents.list for every agent it routes, so one entry serves the whole picker.
+      AGENT_URLS: assistant=http://ai-gateway-agent:18090
+      MODULE_URLS: collab=http://t10-collab:8082,agents=http://t10-agent-control:8085,knowledge=http://t10-knowledge:18050${MODULE_WORKBENCH_URLS:+,${MODULE_WORKBENCH_URLS}}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8083/readyz"]
+      <<: *health
+    depends_on:
+      ai-gateway-agent: {condition: service_healthy}
+      t10-collab: {condition: service_healthy}
+      t10-knowledge: {condition: service_healthy}
+
+volumes:
+  postgres-data:
+  backups:
+  tools-state:
+  llm-audit:
+  agents:
+  agent-ti-data:

@@ -30,4 +30,4 @@ jobs:
       - run: make verify SCRIPTED=1
       - name: Logs, when it failed
         if: failure()
-        run: scripts/compose.sh ps -a && scripts/compose.sh logs --tail=200
+        run: platform/scripts/compose.sh ps -a && platform/scripts/compose.sh logs --tail=200

@@ -1,0 +1,72 @@
+# crm's standard base wiring, written by scripts/render.py from its module.env
+# (scripts/wiring.py). Don't edit: modules/crm/compose/base.yml can change anything here.
+services:
+  crm-db:
+    image: "${POSTGRES_IMAGE}"
+    entrypoint:
+      - sh
+      - -c
+      - "sh /init-db.sh && { [ ! -f /module-init-db.sh ] || sh /module-init-db.sh; }"
+    environment:
+      PGHOST: postgres
+      PGUSER: t10
+      MODULE_DB: crm
+    volumes:
+      - ./platform/foundation/module-init-db.sh:/init-db.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+  crm-seed:
+    image: "${T10_AUTH_SERVER}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        AUTHCTL_SERVICE_SECRET="$$T10_CRM_SECRET" authctl service-add --if-missing --name=t10-crm
+        AUTHCTL_SERVICE_SECRET="$$AGENT_TI_CRM_SECRET" authctl service-add --if-missing --name=agent-ti-crm
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+  auth-server:
+    depends_on:
+      crm-seed:
+        condition: service_completed_successfully
+  t10-agents:
+    volumes:
+      - ./modules/crm/pack/agents/crm:/module-agents/crm:ro
+  t10-crm:
+    image: "${T10_CRM}"
+    restart: unless-stopped
+    env_file: ./env/t10-crm.env
+    environment:
+      AUTH_ISSUER: "${AUTH_PUBLIC_URL}"
+      AUTH_URL: http://auth-server:8081
+      CRM_PUBLIC_URL: "${CRM_PUBLIC_URL}"
+      AGENT_URL: http://ai-gateway-agent:18090/agent
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - --spider
+        - http://127.0.0.1:18100/readyz
+      interval: "5s"
+      timeout: "3s"
+      retries: 12
+    depends_on:
+      auth-server:
+        condition: service_healthy
+      crm-db:
+        condition: service_completed_successfully
+  ai-gateway-tools:
+    depends_on:
+      t10-crm:
+        condition: service_healthy
+  workbench:
+    depends_on:
+      t10-crm:
+        condition: service_healthy
