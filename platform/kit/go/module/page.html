@@ -1,0 +1,41 @@
+{{define "page"}}<!doctype html>
+<html lang="{{.Lang}}"{{if ne .Theme "system"}} data-theme="{{.Theme}}"{{end}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{with .Title}}{{.}} · {{end}}{{.App}}</title>
+<style>{{styles}}</style>
+<style>{{frameCSS}}</style>
+</head>
+<body><div class="shell">
+<aside class="sidebar">
+<a class="brand" href="{{.Home}}">{{template "frame-icon" "app"}}{{.App}}</a>
+{{if .Groups}}<nav class="nav-links" aria-label="{{.App}}">
+{{range .Groups}}{{with .Label}}<span class="nav-group">{{.}}</span>
+{{end}}{{range .Links}}<a class="nav-link" href="{{.Href}}"{{if eq .Key $.Section}} aria-current="page"{{end}}>{{if .Icon}}<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">{{.Icon}}</svg>{{else}}{{template "frame-icon" "app"}}{{end}}<span>{{.Label}}</span></a>
+{{end}}{{end}}</nav>
+{{end}}{{template "frame-apps" .Places}}
+<div class="sidebar-foot">{{template "frame-account" .Menu}}</div>
+</aside>
+<div class="content"><main class="page">
+{{with .Title}}<h1>{{.}}</h1>
+{{end}}{{with .Notice}}<p class="notice" role="status">{{.}}</p>
+{{end}}{{with .Error}}<p class="error" role="alert">{{.}}</p>
+{{end}}{{.Body}}
+</main></div></div></body></html>{{end}}
+
+{{define "signed-out"}}<!doctype html>
+<html lang="{{if .Zh}}zh-Hans{{else}}en{{end}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{t "You're signed out"}} · {{.App}}</title>
+<style>{{styles}}</style>
+</head>
+<body><main class="page narrow">
+<div class="card">
+<h1>{{t "You're signed out"}}</h1>
+{{if .Incomplete}}<p class="error" role="alert">{{t "This app's session has ended, but sign-in couldn't be reached to end the others. Sign out there too."}}{{with .Issuer}} <a href="{{.}}/v1/signout">{{.}}/v1/signout</a>{{end}}</p>
+{{end}}<p><a class="button primary" href="/auth/login">{{t "Sign in again"}}</a></p>
+</div>
+</main></body></html>{{end}}

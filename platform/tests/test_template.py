@@ -138,6 +138,20 @@ class FoundationOnly(TestCase):
         self.p.secrets()
         self.assertIn("auth-server", self.p.compose_config()["services"])
 
+    def test_port_offset_moves_local_ports_but_not_sites(self):
+        self.p.write("site/config/settings.env", self.p.read("site/config/settings.env") + "PORT_OFFSET=-10000\n")
+        self.p.write("site/config/local/settings.env", "COLLAB_PORT=40000\n")
+        self.p.secrets()
+        ports = self.p.compose_config()["services"]["auth-server"]["ports"]
+        self.assertEqual([x["published"] for x in ports], ["28081"])
+        moved = (self.p.dir / "generated/local/ports.env").read_text()
+        self.assertIn("AUTH_PUBLIC_URL=http://localhost:28081\n", moved)
+        self.assertNotIn("COLLAB_PORT", moved)
+        self.assertEqual(self.p.render("prod").joinpath("ports.env").read_text().count("\n"), 1)
+        self.p.write("site/config/settings.env", self.p.read("site/config/settings.env") + "PORT_OFFSET=30000\n")
+        r = self.p.run(*PY, "platform/scripts/render.py", "local", check=False)
+        self.assertIn("past 65535", r.stderr)
+
 
 class Parts(TestCase):
     """Every part adds to the foundation's inputs the same way, site/ too."""

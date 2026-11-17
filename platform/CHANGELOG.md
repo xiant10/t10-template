@@ -4,6 +4,31 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.9.0 (Nov 17, 2026)
+
+What building a real module on the template turned up (kuaidan-sales's `site/docs/template-findings.md`, 1–10): a web app's sign-in works, it opens where Workbench sends it and looks like Workbench, sign-out ends every app, and `make smoke` signs in as a browser does. And a way for every project to report what it finds.
+
+- **Web sign-in fixed** (finding 1). The kit sent `/auth/login` to `<issuer>/authorize`, which auth-server doesn't serve, so every web app's sign-in ended on a 404. It's `/v1/authorize` now, and `/auth/login` passes `tenant` on to it.
+- **An app's home is `/t/<tenant>/`** (finding 2). Workbench and auth-server's Apps list open an app there, and the scaffold now routes it (`GET /t/{tenant}/{$}`), with its bare address sending a person to their tenant's. [`module.md`](docs/module.md#its-web-app) says so.
+- **Notifications** (finding 3). The kit answers Workbench's bell, `GET /v1/notifications` and `POST /v1/notifications/read`: empty until a module sets `Module.Notifier`.
+- **Pages that look like Workbench** (findings 4, 5). `t10kit/frame` is t10-modkit's frame (the rail, Apps list and account menu), and `t10kit/module` draws a page in it: `s.View(r, c)` reads the person's language, theme, name and Apps list from auth-server, `s.Page(w, r, v, module.Page{…})` draws the body inside the frame, and `module.Styles` is Workbench's tokens and base elements, light and dark. `Module.Sections` are the app's sections, served at `GET /v1/me/nav` and in the manifest's `app.nav`; the account menu's language and theme save through `POST /frame/language` and `/frame/theme`. `s.Token(r)` is the person's own token. The manifest gains `app.label_zh` (`Module.LabelZH`). The scaffold's placeholder page uses all of it.
+- **Sign-out ends every app** (finding 6). `POST /auth/logout` now asks auth-server for a sign-out ticket and sends the browser on to end the sign-in and every t10 app's session, as the other apps do; auth-server returns it to the kit's `GET /signed-out`.
+- **`PersonPage`** (finding 8): `Person` for a page a browser opens. One that isn't signed in, or whose session ended, goes to sign-in and back; one signed in to another tenant than `/t/{tenant}/` names signs in to that one, once.
+- **Who sees an app** (finding 7). auth-server lists an app only for people holding one of its module's permissions, so the scaffold's catalog now has `<id>:use` and a `member` template granting it. Upstream U18 asks auth-server for an app every member sees.
+- **`PORT_OFFSET`** (finding 9). One setting in `site/config/settings.env` moves every local port and `localhost` address the template and modules set, such as `PORT_OFFSET=10000` for a second project on the machine; `generated/<env>/ports.env` holds what it moved. `make alone` runs on a port free when it starts, instead of the local port + 10000, which could pass 65535 or clash with another project.
+- **Browser sign-in in `make smoke`** (finding 10). For each module with `web`, it follows `/auth/login` through auth-server's `/v1/authorize` and sign-in page to the callback, and checks the app's `/t/<tenant>/` answers 200.
+- **Reporting findings.** [`template-updates.md`](docs/template-updates.md#reporting-what-a-project-finds) says how a project writes down what it finds about the template, in `site/docs/template-findings.md`, which a new project starts with, and how the template takes it back.
+
+**In a project:**
+
+1. For each module with `web`: route its app's home at `GET /t/{tenant}/{$}` (see `platform/scripts/scaffold/go/server.go`), with `s.PersonPage` in place of `s.Person` on its pages, or `make smoke`'s new browser check fails. Optionally draw its pages with `s.View` and `s.Page`, list them in `Module.Sections`, and set `Module.LabelZH`.
+2. If you patched `platform/kit/go/module/web.go` for the sign-in address or added a `Token` method, take the template's file on conflict (`git checkout --theirs platform/kit/go/module/web.go`): both are in the kit now. A frame copied into a module can go, for `t10kit/frame`. A module's own sign-out continuation to `/v1/signout` can go too: `/auth/logout` does it, and `?next=` is used only standalone.
+3. If its app's users hold none of the module's permissions, add one they all get (as the scaffold's `<id>:use` and `member` template), or they won't see it in their Apps list.
+4. If you moved local ports one by one in `site/config/local/settings.env` to run beside another project, you can replace them with `PORT_OFFSET` in `site/config/settings.env`.
+5. Copy `site/docs/template-findings.md` from the template if you want the starter file (`git show template/main:site/docs/template-findings.md`); a project that already keeps one adds a **Status** column.
+
+Then `make verify`.
+
 ## v0.8.1 (Nov 17, 2026)
 
 A stable signing key on local, so `make reload` no longer breaks a module for minutes, and the last paths from before v0.7.0.

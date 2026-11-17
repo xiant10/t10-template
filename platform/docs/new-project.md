@@ -53,7 +53,7 @@ make smoke
 
 `make up` writes random local secrets to `site/secrets/local.env`, which is never committed. Open <http://127.0.0.1:38083> (workbench) and sign in as `admin@acme.example`, with `AUTH_ADMIN_PASSWORD` from that file. All addresses are in the [README](../../README.md#run-it).
 
-The local ports are the template's (38xxx, 37xxx), so two projects made from it clash. Run one at a time (`make down` in the other), or move this one's ports in `site/config/local/settings.env`.
+The local ports are the template's (38xxx, 37xxx), so two projects made from it clash. Run one at a time (`make down` in the other), or move all of this one's with one setting, `PORT_OFFSET=10000` in `site/config/settings.env` (48xxx, 47xxx; 20000 for a third project): every `*_PORT` and every `localhost` or `127.0.0.1` address the template and its modules set moves by it, on this machine only. A port you set yourself in `site/config/local/settings.env` is taken as it is. `make doctor` then checks the moved ports are free.
 
 To use a real model, paste an OpenAI-compatible key as `LLM_API_KEY` in `site/secrets/local.env`: until then every local command uses the scripted model, and `make up` says so. To use another provider or model, override `OPENAI_BASE_URL`, `SMART_MODEL_NAME` and `FAST_MODEL_NAME` in `site/config/ai-gateway-llm.env`.
 
@@ -121,7 +121,9 @@ The full check, from empty volumes:
 make verify                 # test, down-all, up, seed-demo, check, smoke
 ```
 
-`make test` and `make check` need no running stack and are quick enough to run after every change. `make smoke` checks the running stack end to end: each module's contract, a turn with its agent, its tool call through the gateway, and its hooks.
+`make test` and `make check` need no running stack and are quick enough to run after every change. `make smoke` checks the running stack end to end: each module's contract, a browser signing in to its web app, a turn with its agent, its tool call through the gateway, and its hooks.
+
+When something you hit is the template's doing rather than the project's (a bug in `platform/`, a route nobody documented, a step every module will repeat), write it in `site/docs/template-findings.md` as you go, so the template's maintainers can take it back ([`template-updates.md`](template-updates.md#reporting-what-a-project-finds)). Don't fix it quietly in a template file.
 
 ## 8. Deploy to a server
 

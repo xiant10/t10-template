@@ -3,12 +3,14 @@ package module
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -22,9 +24,10 @@ import (
 // The template's standard wiring gives every web module AUTH_ISSUER, AUTH_URL,
 // AUTH_WEB_CLIENT_SECRET, <ID>_PUBLIC_URL and <ID>_SESSION_KEY, and registers <Service>-web in
 // clients.yaml with redirect_uris ["${<ID>_PUBLIC_URL}/auth/callback"]. Register mounts
-// GET /auth/login, GET /auth/callback and POST /auth/logout, and Person accepts either an
-// Authorization: Bearer header or the session cookie. In standalone mode (T10_STANDALONE=1),
-// GET /auth/login signs in as the standalone person immediately.
+// GET /auth/login, GET /auth/callback, POST /auth/logout and GET /signed-out; Person accepts
+// either an Authorization: Bearer header or the session cookie, and PersonPage sends a browser
+// that isn't signed in to sign-in instead of answering 401. In standalone mode
+// (T10_STANDALONE=1), GET /auth/login signs in as the standalone person immediately.
 
 func (m *Module) sessionCookieName() string { return m.ID + "_session" }
 func (m *Module) oauthCookieName() string   { return m.ID + "_oauth" }
@@ -131,6 +134,18 @@ func (m *Module) bearerOrSession(r *http.Request) (string, error) {
 	return "Bearer " + tok, nil
 }
 
+// Token is the person's own token, from the Authorization header or the web session, to call
+// auth-server as them, such as their homes or preferences. Empty when there's none. It isn't
+// checked: call Person or PersonPage first.
+func (m *Module) Token(r *http.Request) string {
+	hdr, err := m.bearerOrSession(r)
+	if err != nil {
+		return ""
+	}
+	tok, _ := bearer(hdr)
+	return tok
+}
+
 func (m *Module) setSessionCookie(w http.ResponseWriter, token string, maxAge int) error {
 	val, err := m.seal(token)
 	if err != nil {
@@ -182,7 +197,12 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) {
 		"code_challenge":        {challenge},
 		"code_challenge_method": {"S256"},
 	}
-	http.Redirect(w, r, issuer+"/authorize?"+q.Encode(), http.StatusSeeOther)
+	// The tenant to sign in to, as the app's /t/<tenant>/ names it. auth-server takes it only
+	// when the person is a member there.
+	if tenant := r.URL.Query().Get("tenant"); tenant != "" {
+		q.Set("tenant", tenant)
+	}
+	http.Redirect(w, r, issuer+"/v1/authorize?"+q.Encode(), http.StatusSeeOther)
 }
 
 func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
@@ -244,14 +264,143 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
+// logout ends this app's session, then sends the browser on to auth-server to end the sign-in
+// behind it and every other t10 app's session in this browser, as every t10 app does: with a
+// sign-out ticket when the session can ask for one, auth-server's own sign-out page when it
+// can't, and /signed-out?reason=incomplete when auth-server isn't answering. Standalone, with no
+// auth-server, it goes to next.
 func (m *Module) logout(w http.ResponseWriter, r *http.Request) {
 	if !m.sameOrigin(r) {
 		Reply(w, 403, map[string]string{"error": "forbidden"})
 		return
 	}
+	target := m.signOutTarget(r)
+	m.clearSession(w)
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (m *Module) clearSession(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name: m.sessionCookieName(), Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: m.secureCookie(), SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
+}
+
+func (m *Module) signOutTarget(r *http.Request) string {
+	issuer := strings.TrimRight(os.Getenv("AUTH_ISSUER"), "/")
+	if issuer == "" {
+		return safeNext(r.URL.Query().Get("next"))
+	}
+	const incomplete = "/signed-out?reason=incomplete"
+	token := m.Token(r)
+	if token == "" {
+		return issuer + "/v1/signout"
+	}
+	// auth-server returns the browser only to /signed-out on an origin registered for this
+	// app's web client.
+	pub, err := url.Parse(m.PublicURL)
+	if err != nil || pub.Host == "" {
+		return issuer + "/v1/signout"
+	}
+	var out struct {
+		Ticket string `json:"ticket"`
+	}
+	status, err := callAuth(r.Context(), http.MethodPost, "/v1/me/browser-logout", token,
+		map[string]string{"client_id": m.Service + "-web", "return_to": pub.Scheme + "://" + pub.Host + "/signed-out"}, &out)
+	switch {
+	case err != nil || status >= 500:
+		return incomplete
+	case status != http.StatusOK || out.Ticket == "":
+		// The session had already ended: auth-server's page finishes the rest.
+		return issuer + "/v1/signout"
+	}
+	return issuer + "/v1/signout/complete?ticket=" + url.QueryEscape(out.Ticket)
+}
+
+// callAuth calls auth-server as the person whose token this is, with a JSON body when body
+// isn't nil, and decodes a 200's JSON answer into out when out isn't nil.
+func callAuth(ctx context.Context, method, path, token string, body, out any) (int, error) {
+	var rd io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return 0, err
+		}
+		rd = bytes.NewReader(raw)
+	}
+	authURL := strings.TrimRight(cmp.Or(os.Getenv("AUTH_URL"), os.Getenv("AUTH_ISSUER")), "/")
+	req, err := http.NewRequestWithContext(ctx, method, authURL+path, rd)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	res, err := authHTTP.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusOK && out != nil {
+		if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(out); err != nil {
+			return 0, err
+		}
+	}
+	return res.StatusCode, nil
+}
+
+var authHTTP = &http.Client{Timeout: 5 * time.Second}
+
+// PersonPage is Person for a page a browser opens. A browser that isn't signed in, or whose
+// session has ended, goes to sign-in and comes back here; on a page under /t/{tenant}/, a
+// session for another tenant signs in to that one, once. A request with an Authorization header
+// is answered as Person answers it.
+func (m *Module) PersonPage(w http.ResponseWriter, r *http.Request) (Caller, bool) {
+	hdr, err := m.bearerOrSession(r)
+	if err != nil {
+		Refuse(w, err)
+		return Caller{}, false
+	}
+	browser := r.Header.Get("Authorization") == ""
+	if hdr == "" {
+		m.toSignIn(w, r, "")
+		return Caller{}, false
+	}
+	c, err := m.Access.Person(r.Context(), hdr)
+	if errors.Is(err, ErrUnauthorized) && browser {
+		m.clearSession(w)
+		m.toSignIn(w, r, "")
+		return Caller{}, false
+	}
+	if err != nil {
+		Refuse(w, err)
+		return Caller{}, false
+	}
+	if tenant := r.PathValue("tenant"); tenant != "" && tenant != c.TenantID {
+		// Once: auth-server signs in to another tenant when this person isn't in this one.
+		tried, _ := r.Cookie(m.ID + "_tenant")
+		if browser && r.Method == http.MethodGet && (tried == nil || tried.Value != tenant) {
+			http.SetCookie(w, &http.Cookie{Name: m.ID + "_tenant", Value: tenant, Path: "/", MaxAge: 120,
+				HttpOnly: true, Secure: m.secureCookie(), SameSite: http.SameSiteLaxMode})
+			m.toSignIn(w, r, tenant)
+			return Caller{}, false
+		}
+		Refuse(w, ErrForbidden)
+		return Caller{}, false
+	}
+	return c, true
+}
+
+// toSignIn sends a GET to sign-in, to come back to the same address; anything else gets 401.
+func (m *Module) toSignIn(w http.ResponseWriter, r *http.Request, tenant string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		Refuse(w, ErrUnauthorized)
+		return
+	}
+	q := url.Values{"next": {safeNext(r.URL.RequestURI())}}
+	if tenant = cmp.Or(tenant, r.PathValue("tenant")); tenant != "" {
+		q.Set("tenant", tenant)
+	}
+	http.Redirect(w, r, "/auth/login?"+q.Encode(), http.StatusSeeOther)
 }

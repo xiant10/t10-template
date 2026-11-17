@@ -36,6 +36,8 @@ its folder's, as its standard wiring and secrets do, so site/ can add to or chan
     permissions/       every catalog auth-server loads: each part's permissions/ and each pack's
     agent-routes.json  foundation/agent-routes.json, each part's, and a pool and an agent for each
                        module agent
+    ports.env          the local ports and addresses PORT_OFFSET moves (lib.port_offset), read
+                       after every part's settings.env
     modules.env        MODULE_* variables, appended to the foundation's lists in foundation/compose/base.yml:
                        what each part's part.env adds, and what each module's pack says
     Caddyfile          on a server (dev, prod): one site per public address, from each part's
@@ -252,7 +254,7 @@ def compose_files(names, standard):
 def compose_script(env_name, standard):
     """generated/<env>/compose.sh. The bundle has the repo's layout, so paths are the same."""
     rel = lambda p: str(p.relative_to(lib.ROOT))
-    env_files = ["versions.env", *map(rel, lib.settings_files(env_name)), "secrets.env", "modules.env"]
+    env_files = ["versions.env", *map(rel, lib.settings_files(env_name)), "ports.env", "secrets.env", "modules.env"]
     files = " ".join(f"-f {f}" for f in compose_files(["base", *lib.layers(env_name)], standard) + ["secrets.yml"])
     lines = ["#!/bin/sh", f"# Written by scripts/render.py for ENV={env_name}. Don't edit.",
              "# docker compose on this bundle: each part's Compose files and settings, the pinned versions,",
@@ -341,6 +343,10 @@ def main(env_name):
     for service in lib.services_configured(env_name):
         files[f"env/{service}.env"] = (service_env(service, env_name), 0o644)
     files["versions.env"] = (merged_env(lib.versions_files(), lib.versions()), 0o644)
+    # What PORT_OFFSET moved (lib.port_offset), read after the settings files.
+    unmoved = lib.settings(env_name, offset=False)
+    moved = "".join(f"{k}={v}\n" for k, v in settings.items() if v != unmoved.get(k))
+    files["ports.env"] = (("# Written by scripts/render.py: the settings PORT_OFFSET moves. Don't edit.\n" + moved).encode(), 0o644)
     if with_secrets and lib.has_secrets(env_name):
         files["secrets.env"] = (lib.secrets_text(env_name).encode(), 0o600)
     # Each service's own secrets, and a Compose file that has it read them after its settings.

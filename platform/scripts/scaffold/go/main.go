@@ -2,6 +2,7 @@
 // /v1/access and its tools at /mcp) comes from the template's kit (t10kit/module, kit/go/ in
 // the project); this module adds its tools (tools.go) and its web app (server.go). Its settings
 // come from the project: the standard ones every module gets, and modules/__id__/config/.
+// Workbench's bell asks every module for notifications; set Module.Notifier once it has some.
 package main
 
 import (
@@ -40,8 +41,8 @@ func main() {
 		log.Fatal(err)
 	}
 	s := &Server{Module: module.Module{
-		ID: moduleID, Service: service, Label: "__Id__", PublicURL: os.Getenv("__ID___PUBLIC_URL"),
-		Access: access, Ping: pool.Ping, Tools: tools(),
+		ID: moduleID, Service: service, Label: "__Id__", LabelZH: "__Id__", PublicURL: os.Getenv("__ID___PUBLIC_URL"),
+		Sections: sections(), Access: access, Ping: pool.Ping, Tools: tools(),
 	}}
 	srv := &http.Server{Addr: cmp.Or(os.Getenv("LISTEN_ADDR"), ":__port__"), Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {

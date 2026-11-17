@@ -21,11 +21,11 @@ The rule: **a module is proven alone before it meets the foundation.** A failure
 
 ```sh
 make contract MODULE=crm          # starts it alone, checks it, stops it
-make alone MODULE=crm             # or keep it running, to work against it: http://127.0.0.1:<its port + 10000>
+make alone MODULE=crm             # or keep it running, to work against it: it prints its address
 make alone-down MODULE=crm
 ```
 
-`make alone` runs the module's service by itself as its own Compose project, with its own throwaway Postgres and database, built from `modules/<id>/src/`, on its local port plus 10000, so it runs beside the full stack. It gets its own settings from `modules/<id>/config/`, and `T10_STANDALONE=1` with no `AUTH_ISSUER`, which switches the kit to a stand-in for auth-server:
+`make alone` runs the module's service by itself as its own Compose project, with its own throwaway Postgres and database, built from `modules/<id>/src/`, on a port that is free when it starts (`make alone` prints its address, and `platform/scripts/alone.py <id> url` gives it again), so it runs beside the full stack and other projects. It gets its own settings from `modules/<id>/config/`, and `T10_STANDALONE=1` with no `AUTH_ISSUER`, which switches the kit to a stand-in for auth-server:
 
 | Token | Is |
 | --- | --- |

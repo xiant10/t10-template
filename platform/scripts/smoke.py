@@ -10,7 +10,9 @@ of its own (docs/plan.md).
    without `web` at its local port, and on a server not at all).
 2. The bootstrap admin signs in (password grant: dev mode only).
 3. Each module answers /v1/module and /v1/access for that person.
-4. auth-server's landing data lists each module's web app for the tenant.
+4. auth-server's landing data lists each module's web app for the tenant, and for each, a browser
+   signs in as a person does: the app's /auth/login, auth-server's /v1/authorize and sign-in
+   page, the app's /auth/callback, then the app's home for the tenant, /t/<tenant>/.
 5. Every agent in the route document answers session.create by name through ai-gateway-agent,
    and each module agent answers a turn. With the scripted model and a module's
    compose/scripted.yml, that turn's tool call reaches the module through ai-gateway-tools.
@@ -20,6 +22,7 @@ of its own (docs/plan.md).
    hooks/smoke.sh is one check, which passes when it exits 0.
 7. With the scripted model (SCRIPTED=1), no identity header reached the model.
 """
+import http.cookiejar as http_cookies
 import json
 import os
 import pathlib
@@ -184,6 +187,35 @@ apps = [a["id"] for t in (body.get("workbench", {}).get("tenants", []) if status
 for m, _, _ in MODULES:
     if wiring.has(m, "web"):
         check(f"auth-server lists the {m['MODULE_ID']} app", m["MODULE_ID"] in apps, f"{status} {apps}")
+
+
+def browser_sign_in(url):
+    """A browser opening a module's web app and signing in: where it ends up, and its status."""
+    jar = http_cookies.CookieJar()
+    browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+    home = f"/t/{urllib.parse.quote(tenant)}/"
+    try:
+        page = browser.open(url + "/auth/login?" + urllib.parse.urlencode({"next": home, "tenant": tenant}), timeout=15)
+        signin = urllib.parse.urlsplit(page.geturl())
+        if signin.path != "/v1/signin":
+            return page.geturl(), page.status
+        origin = f"{signin.scheme}://{signin.netloc}"
+        form = {"name": admin, "password": secrets["AUTH_ADMIN_PASSWORD"],
+                "next": urllib.parse.parse_qs(signin.query).get("next", ["/"])[0]}
+        page = browser.open(urllib.request.Request(origin + "/v1/signin", data=urllib.parse.urlencode(form).encode(),
+                                                   headers={"Origin": origin}), timeout=15)
+        return page.geturl(), page.status
+    except urllib.error.HTTPError as e:
+        return e.geturl(), e.code
+    except OSError as e:
+        return str(e), 0
+
+
+for m, url, _ in MODULES:
+    if wiring.has(m, "web"):
+        where, status = browser_sign_in(url)
+        check(f"a browser signs in to the {m['MODULE_ID']} app and opens /t/{tenant}/",
+              status == 200 and where == f"{url}/t/{urllib.parse.quote(tenant)}/", f"{status} at {where}")
 
 # 5. Every agent in the route document is reachable by name through ai-gateway-agent, and each
 # module's answers a turn, calling the module's tool with the scripted model.

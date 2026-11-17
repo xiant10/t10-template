@@ -16,7 +16,7 @@ var admin = module.Caller{TenantID: "ten_acme", UserID: "usr_1", TenantAdmin: tr
 
 func serve(t *testing.T, method, path, token, body string) (int, map[string]any) {
 	t.Helper()
-	s := &Server{Module: module.Module{ID: moduleID, Service: service, Label: "__Id__",
+	s := &Server{Module: module.Module{ID: moduleID, Service: service, Label: "__Id__", Sections: sections(),
 		Access: module.Fake{Caller: admin, Actions: []string{readAction}}, Ping: func(context.Context) error { return nil }, Tools: tools()}}
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if token != "" {
@@ -30,8 +30,14 @@ func serve(t *testing.T, method, path, token, body string) (int, map[string]any)
 }
 
 func TestHome(t *testing.T) {
-	if code, _ := serve(t, "GET", "/", "", ""); code != 200 {
+	if code, _ := serve(t, "GET", "/t/ten_acme/", "", ""); code != 303 {
+		t.Errorf("home before sign-in: %d", code)
+	}
+	if code, _ := serve(t, "GET", "/t/ten_acme/", "person", ""); code != 200 {
 		t.Errorf("home: %d", code)
+	}
+	if code, _ := serve(t, "GET", "/t/ten_other/", "person", ""); code != 403 {
+		t.Errorf("another tenant's home: %d", code)
 	}
 }
 

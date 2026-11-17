@@ -7,7 +7,8 @@ contract can be checked before it joins the stack (docs/integration.md, gate 2).
     scripts/alone.py ID url     # its address
 
 It runs as its own Compose project, <PROJECT_NAME>-alone-<id>, written to generated/alone/<id>/,
-on 127.0.0.1 at its local port + 10000, so it runs beside the full stack. The service gets
+on 127.0.0.1 at a port free when it starts (kept in generated/alone/<id>/port, and printed),
+so it runs beside the full stack and any other project's. The service gets
 T10_STANDALONE=1 and no AUTH_ISSUER: the kit (t10kit/module.NewAccess) then accepts "Bearer
 person" as a tenant admin and "Bearer agent" as an agent with the actions its catalog grants.
 Its database password is throwaway; nothing here is a real secret.
@@ -15,6 +16,7 @@ Its database password is throwaway; nothing here is a real secret.
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 
@@ -37,16 +39,43 @@ def module(mid):
     return folder, src, lib.read_env(src / "module" / "module.env")
 
 
-def port(m):
-    return int(lib.settings("local")[wiring.upper(m["MODULE_ID"]) + "_PORT"]) + 10000
+def port_file(mid):
+    return lib.GENERATED / "alone" / mid / "port"
+
+
+def port(mid, fresh=False):
+    """Its port on this machine: the one it last started on, or with fresh, the one it last
+    started on if that's still free, else any free one."""
+    f = port_file(mid)
+    if f.exists() and not fresh:
+        return int(f.read_text())
+    if f.exists() and free(int(f.read_text())):
+        return int(f.read_text())
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def free(p):
+    with socket.socket() as sock:
+        try:
+            sock.bind(("127.0.0.1", p))
+            return True
+        except OSError:
+            return False
 
 
 def url(mid):
-    return f"http://127.0.0.1:{port(module(mid)[2])}"
+    if not port_file(mid).exists():
+        sys.exit(f"{mid} hasn't run alone yet: make alone MODULE={mid}")
+    return f"http://127.0.0.1:{port(mid)}"
 
 
-def write(mid):
+def write(mid, at=0):
+    """generated/alone/<id>/compose.yml, published at port at (0 for the one it last used)."""
     folder, src, m = module(mid)
+    # Never started: any port does for `down`, which publishes nothing.
+    at = at or (port(mid) if port_file(mid).exists() else 1)
     u, service, db = wiring.upper(mid), m["SERVICE"], mid.replace("-", "_")
     out = lib.GENERATED / "alone" / mid
     out.mkdir(parents=True, exist_ok=True)
@@ -73,9 +102,9 @@ def write(mid):
             "image": f"{service}:dev",
             "build": {"context": str(src), "additional_contexts": {"kit": str(lib.PLATFORM / "kit" / "go")}},
             "env_file": f"./{service}.env",
-            "environment": {"T10_STANDALONE": "1", f"{u}_PUBLIC_URL": f"http://127.0.0.1:{port(m)}",
+            "environment": {"T10_STANDALONE": "1", f"{u}_PUBLIC_URL": f"http://127.0.0.1:{at}",
                             f"{u}_SESSION_KEY": B64_KEY, "AUTH_WEB_CLIENT_SECRET": PASSWORD, **extra_env},
-            "ports": [f"127.0.0.1:{port(m)}:{m['PORT']}"],
+            "ports": [f"127.0.0.1:{at}:{m['PORT']}"],
             "read_only": True, "tmpfs": ["/tmp"],
             "healthcheck": {"test": ["CMD", "wget", "-q", "--spider", f"http://127.0.0.1:{m['PORT']}/readyz"],
                             "interval": "2s", "timeout": "3s", "retries": 30},
@@ -100,8 +129,8 @@ def write(mid):
     return out
 
 
-def compose(mid, *args):
-    out = write(mid)
+def compose(mid, *args, at=0):
+    out = write(mid, at)
     flags = [a for a in args if a in ("--progress", "quiet")]
     args = [a for a in args if a not in flags]
     return subprocess.run(["docker", "compose", *flags, "--project-directory", str(out), "-f", str(out / "compose.yml"), *args],
@@ -116,7 +145,11 @@ def main(argv):
         print(url(mid))
     elif action == "up":
         quiet = ["--progress", "quiet"] if os.environ.get("QUIET") else []
-        if compose(mid, *quiet, "up", "-d", "--build", "--wait", "--wait-timeout", "120", "--remove-orphans") != 0:
+        compose(mid, "--progress", "quiet", "down", "--remove-orphans")  # so its last port counts as free
+        at = port(mid, fresh=True)
+        port_file(mid).parent.mkdir(parents=True, exist_ok=True)
+        port_file(mid).write_text(f"{at}\n")
+        if compose(mid, *quiet, "up", "-d", "--build", "--wait", "--wait-timeout", "120", "--remove-orphans", at=at) != 0:
             sys.exit(f"{mid} didn't start alone; its logs: docker compose -p {lib.settings('local')['PROJECT_NAME']}-alone-{mid} logs")
         print(f"{mid} runs alone at {url(mid)}: Bearer person and Bearer agent are accepted. make contract MODULE={mid} checks it.")
     else:

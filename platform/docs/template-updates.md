@@ -96,7 +96,31 @@ A project's `make template-update` sees only tagged, pushed releases. In `t10-te
 
 5. Each project runs `make template-update` when it's ready.
 
-A change found while working in a project goes the same way: make it in the template, release it, and take it into the project with `make template-update`. Never leave it as an edit to a template file in the project.
+A change found while working in a project goes the same way: make it in the template, release it, and take it into the project with `make template-update`. Never leave it as an edit to a template file in the project. When the project can't wait, or someone else maintains the template, write it down as a finding instead ([below](#reporting-what-a-project-finds)).
+
+## Reporting what a project finds
+
+Building a real module is how the template's gaps show up: a bug in the kit, a route Workbench expects that nobody documented, a step every module repeats by hand. A project writes each one down in `site/docs/template-findings.md`, which every project starts with, so the template's maintainers can take it back. It's the project's file, so `make template-update` never touches it.
+
+**When to write one.** Whenever working on the project shows something about the template rather than about the project: a bug in `platform/`, a gap in the module contract or the kit, a doc that's wrong or silent, something the project had to work around or repeat that every project will, or a check that would have caught a problem sooner. Write it when you find it, not at the end. Something only this project needs isn't a finding; it goes in `site/` or the module's folder, as above. Something wrong in a foundation service (auth-server, Workbench, …) is still written here: the template's maintainers turn it into an upstream item ([`upstream.md`](upstream.md)).
+
+**What each says.** A row in the file's table, then a section with the same number:
+
+| Part | Says |
+| --- | --- |
+| Title | The finding in one sentence, as the problem, not the fix: "The kit's web sign-in goes to the wrong address" |
+| Kind | `Bug`, `Contract gap` (the template doesn't say or do something a module has to), `Gap` (missing help, such as a kit helper), `Documentation`, `Test gap` or `Suggestion` |
+| What happened | What you saw, with the exact error, address or log line, and the template version (`platform/CHANGELOG.md`'s top entry) |
+| Cause | Where in the template, or the foundation, it comes from: file and function, `path/to/file.go`, `name` |
+| Here | What this project did about it: nothing yet, a workaround in its own code, or a local patch to a template file |
+| Suggestion | What the template could do, so the next project gets it for free. Several options are fine; say which you'd pick |
+| Status | `open`; `taken in v<x.y.z>` once a release has it; `declined` with the reason |
+
+**A local patch to a template file** is the last resort, for a bug that blocks the project: keep it to the smallest change, put `template-finding <n>` in a comment beside it so `grep -rn "template-finding"` finds it, and mark it in the table's **Local patch** column. `make check` lists every edited template file too. The patch may conflict at the next `make template-update`; when that release has the fix, take the template's file (`git checkout --theirs <file>`), and otherwise keep yours and say so in the finding.
+
+**After an update,** read the release's notes against the open findings: mark each one the release takes as `taken in v<x.y.z>`, remove its workaround or patch, and check with `make verify`.
+
+**For the template's maintainers:** read a project's `site/docs/template-findings.md` before planning a release. Each finding a release takes gets a line in `CHANGELOG.md` naming it (such as "from kuaidan-sales's findings, 1"), so the project can match them up. A finding about a foundation service becomes an item in `upstream.md`.
 
 ## Foundation images
 

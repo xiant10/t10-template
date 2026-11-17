@@ -23,6 +23,7 @@ Shell scripts ask it for settings instead:
 """
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -204,10 +205,46 @@ def settings_files(env):
     return [f for f in files if f.exists()]
 
 
-def settings(env):
-    out = {}
+def settings(env, offset=True):
+    """Every settings file's values, later ones winning, with PORT_OFFSET applied (port_offset)."""
+    out, site = {}, {}
     for f in settings_files(env):
-        out.update(read_env(f))
+        values = read_env(f)
+        out.update(values)
+        if f.is_relative_to(SITE):
+            site.update(values)
+    return port_offset(env, out, site) if offset else out
+
+
+def port_offset(env, values, site):
+    """PORT_OFFSET, set in site/config/settings.env or site/config/<env>/settings.env, moves every
+    port this machine publishes, so several projects made from the template run side by side:
+    each *_PORT that is a number, and the port in each http(s) or ws(s) address on localhost or
+    127.0.0.1. Only on this machine (the local shape), and never a value site/ sets itself, which is
+    taken as it is. render.py writes what it changed to generated/<env>/ports.env for Compose."""
+    raw = values.get("PORT_OFFSET", "").strip()
+    if not raw or raw == "0" or shape(env) != "local":
+        return values
+    try:
+        offset = int(raw)
+    except ValueError:
+        sys.exit(f"PORT_OFFSET={raw!r} must be a whole number, such as 10000")
+    out, bad = dict(values), []
+    for k, v in values.items():
+        if k in site:
+            continue
+        if k.endswith("_PORT") and v.isdigit():
+            port = int(v) + offset
+            out[k] = str(port)
+        elif m := re.fullmatch(r"((?:https?|wss?)://(?:localhost|127\.0\.0\.1):)(\d+)(/.*)?", v):
+            port = int(m[2]) + offset
+            out[k] = f"{m[1]}{port}{m[3] or ''}"
+        else:
+            continue
+        if not 0 < port <= 65535:
+            bad.append(k)
+    if bad:
+        sys.exit(f"PORT_OFFSET={offset} moves {', '.join(bad)} past 65535: choose a smaller offset")
     return out
 
 

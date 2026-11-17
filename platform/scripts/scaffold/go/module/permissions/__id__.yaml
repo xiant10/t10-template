@@ -16,9 +16,11 @@
   },
   "version": 1,
   "permissions": [
+    {"key": "__id__:use", "description": "Use __Id__", "lifecycle": "active"},
     {"key": "__id__:admin", "description": "Administer __Id__", "lifecycle": "active"}
   ],
   "templates": [
-    {"id": "admin", "name": "__Id__ administrator", "description": "Sets up __Id__", "permissions": ["__id__:admin"]}
+    {"id": "member", "name": "__Id__ user", "description": "Uses __Id__: its app is in their Apps list", "permissions": ["__id__:use"]},
+    {"id": "admin", "name": "__Id__ administrator", "description": "Sets up __Id__", "permissions": ["__id__:use", "__id__:admin"]}
   ]
 }

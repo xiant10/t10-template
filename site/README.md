@@ -12,7 +12,7 @@ outside `site/` and `modules/` comes from the template and is never edited here.
 | `secrets/` | The secret values, one file per environment, and the only place they're read from (`secrets/README.md`) |
 | `secrets.json` | Secrets this project adds, if any, in the same format as `platform/foundation/secrets.json` |
 | `versions.env` | Optional: a pin this project needs to differ from `platform/foundation/versions.env` or a module's, as a deliberate exception |
-| `docs/` | This project's own plan, decisions and open questions; how the template works is in `../platform/docs/` |
+| `docs/` | This project's own plan, decisions and open questions (`plan.md`), and what it found about the template, for its maintainers (`template-findings.md`); how the template works is in `../platform/docs/` |
 | `compose/<env>.yml` | Rarely: Compose changes for this project only, layered after the others |
 | `clients.json`, `agent-routes.json`, `permissions/`, `part.env` | Optional: OAuth clients, agent routes, catalogs and foundation list entries of this project's own, or changes to the foundation's (`"_merge": true` on a client); `../platform/docs/guide.md#what-a-part-adds` |
 | `hooks/<event>.sh` or `.py` | Optional: steps around a command: `post-up`, `seed-demo`, `smoke`, `check`, `pre-deploy`, `post-deploy` (`../platform/docs/guide.md#hooks`) |
