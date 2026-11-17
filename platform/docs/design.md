@@ -187,7 +187,7 @@ What an environment runs is the same across targets: the merged `env/<service>.e
 
 Its own `compose/base.yml` holds only the few things particular to it, such as a sign-in setting on auth-server or a secret of its own on its service.
 
-**Building modules.** Module images are the only ones ever built, and their source is the only thing the local bundle reads from the checkout. A module with its code in the project gets `build:` in its standard local wiring, with the template's `kit/go/` as a named build context, so every local `make up` builds it from `src/<SRC>`; servers pull its released image. A module in its own repo is pulled, unless `DEV=1` adds its standard build wiring, which builds it from its checkout in `src/<SRC>`.
+**Building modules.** Module images are the only ones ever built, and their source is the only thing the local bundle reads from the checkout. A module with its code in the project gets `build:` in its standard local wiring, with the template's `kit/go/` as a named build context, so every local `make up` builds it from `modules/<id>/<SRC>/`; servers pull its released image. A module in its own repo is pulled, unless `DEV=1` adds its standard build wiring, which builds it from its checkout in `modules/<id>/<SRC>/`.
 
 **Two switches.** `DEV=1`, above, and `SCRIPTED=1`, which `make` turns on by itself on local while there's no `LLM_API_KEY`. `SCRIPTED=1` adds `foundation/compose/scripted.yml`, which points `ai-gateway-llm` at a scripted model (`foundation/scripted/fake-model.mjs`), so `make up` and `make smoke` work with no `LLM_API_KEY`. A module's own `compose/scripted.yml` names, in `SCRIPTED_TOOL_<ID>`, a tool the scripted model calls, so a turn reaches the module through `ai-gateway-tools`.
 

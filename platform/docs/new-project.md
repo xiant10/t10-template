@@ -64,16 +64,16 @@ A module is the business part of the project: a service with its own database, w
 ```sh
 make new-module ID=crm            # service t10-crm, on the next free port
 make test MODULE=crm              # its tests, in Docker
-make up                           # builds it from src/crm/ and runs it with the foundation
+make up                           # builds it from modules/crm/src/ and runs it with the foundation
 make smoke                        # checks it end to end, including a turn with its agent
 ```
 
-That gives two folders, both the project's:
+That gives one folder, the project's, in two parts:
 
 | Folder | Holds |
 | --- | --- |
-| `src/crm/` | Its code: a small working Go service, its tests, its Dockerfile, and its pack in `module/` (permissions, agent, OAuth clients, `module.env`) |
-| `modules/crm/` | Its deployment: its settings, its address and port, its image pin. Its wiring into the foundation, database and standard secrets come from the template |
+| `modules/crm/src/` | Its code: a small working Go service, its tests, its Dockerfile, and its pack in `module/` (permissions, agent, OAuth clients, `module.env`) |
+| `modules/crm/` (the rest) | Its deployment: its settings, its address and port, its image pin. Its wiring into the foundation, database and standard secrets come from the template |
 
 The service already does what every module must ([`module.md`](module.md#its-service)), through the template's Go kit: readiness, its manifest for workbench, a person's access, and its tools at `/mcp` for agents, with tokens checked against auth-server. What you build is the module itself:
 
@@ -144,7 +144,7 @@ Another environment, such as `uat`, needs only `site/config/uat/settings.env` wi
 ## 9. Keep up with the template
 
 ```sh
-make template-update      # the latest release; README.md, modules/, site/ and src/ stay as they are
+make template-update      # the latest release; README.md, modules/ and site/ stay as they are
 make check                # warns about any template file this project edited
 ```
 
@@ -157,7 +157,7 @@ It prints what [`CHANGELOG.md`](../CHANGELOG.md) says about each release it brou
 | `README.md`, `modules/`, `site/`, `.github/workflows/ci.yml` | Yes, the project's own |
 | Everything else in the repo | Yes, from the template; never edited here |
 | `site/secrets/<env>.env` | Never. Only `<env>.enc.env`, once SOPS is built |
-| `src/<repo>/` cloned by `make clone` | Never: a module's own repo, kept out of git |
+| `modules/<id>/src/` cloned by `make clone` | Never: a module's own repo, kept out of git |
 | `generated/` | Never: the rendered bundle |
 
 ## Checklist

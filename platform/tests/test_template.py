@@ -41,6 +41,9 @@ class Project:
             shutil.copy2(ROOT / f, dest)
         for f in (self.dir / "site" / "secrets").glob("*.env"):
             f.unlink()
+        # A stand-in signing key, which `secrets.py init` keeps, so local tests don't each run
+        # auth-server's image to make one.
+        (self.dir / "site" / "secrets" / "local.env").write_text('AUTH_SIGNING_KEY_CURRENT="stand-in"\n')
 
     def run(self, *cmd, check=True, **env):
         r = subprocess.run(cmd, cwd=self.dir, capture_output=True, text=True,
@@ -601,7 +604,8 @@ class Docs(unittest.TestCase):
     before a layout change. The CHANGELOG is history, so it keeps the old paths."""
 
     STALE = (
-        (re.compile(r"(?<!modules/<id>/)(?<![\w/])src/<id>"), "modules/<id>/src/"),
+        # src/<id>, src/<repo> or src/crm at the root, not inside modules/<id>/.
+        (re.compile(r"(?<![\w/])src/(?:<\w+>|crm\b)"), "modules/<id>/src/"),
         (re.compile(r"\.\./\.\./kit/go"), "../../../platform/kit/go"),
     )
 

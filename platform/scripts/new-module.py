@@ -2,7 +2,7 @@
 """Make a new business module, shaped like the contract in docs/module.md.
 
     scripts/new-module.py ID [SERVICE] [PORT] [REPO]
-    scripts/new-module.py crm                                             # code in src/crm/
+    scripts/new-module.py crm                                             # code in modules/crm/src/
     scripts/new-module.py crm t10-crm 18076 https://github.com/x/t10-crm.git   # its own repo
 
 ID is the module's MODULE_ID. SERVICE, its Compose service and auth-server account, is t10-<ID>
@@ -15,7 +15,7 @@ How it plugs into the foundation isn't written here: scripts/render.py works tha
 module.env on every run (scripts/wiring.py), so a template update reaches every module. Its
 folder holds only what's particular to it: its image pin, its settings, and any change it needs.
 
-Without REPO, its code is in this project: src/<ID>/ gets a small working service from
+Without REPO, its code is in this project: modules/<ID>/src/ gets a small working service from
 scripts/scaffold/<SCAFFOLD>/, with its pack in module/. SCAFFOLD (in the environment, `make
 new-module SCAFFOLD=…`) picks the language; go, the default, is the one there is. Another is a
 folder beside it with the same tokens (__id__, __ID__, __Id__, __service__, __port__), a

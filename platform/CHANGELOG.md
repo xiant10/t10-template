@@ -4,6 +4,15 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.8.1 (Nov 17, 2026)
+
+A stable signing key on local, so `make reload` no longer breaks a module for minutes, and the last paths from before v0.7.0.
+
+- **auth-server keeps its signing key on local.** `AUTH_SIGNING_KEY_CURRENT` is now made for every environment, not only dev and prod. Without it, auth-server's dev mode made a new key at every start, so restarting it (as `make reload` does after a pack change) signed out every session and voided each service's cached token until it expired: a module answered 503 and `make smoke` failed for up to five minutes.
+- **Docs.** `new-project.md`, `design.md` and the comments in `new-module.py`, `release.sh`, `reload.sh`, `render.py` and `seed-demo.sh` gave module code at `src/<id>/` or `src/<SRC>/`; it's `modules/<id>/src/`. The old-path check in `make test-template` now catches `src/<anything>` and `src/crm` too.
+
+**In a project:** nothing to do. The next `make up` adds the key to `site/secrets/local.env` (and `k8s-local.env` with `ENV=k8s-local`) and restarts auth-server with it, which signs everyone out once. Check with `make verify`.
+
 ## v0.8.0 (Nov 17, 2026)
 
 A module's Dockerfile no longer depends on the project's layout, CI is split so a project can add its own jobs, and the docs say where things are since v0.7.0.

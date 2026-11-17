@@ -6,7 +6,7 @@
 #
 # The image is $IMAGE_REGISTRY/<service>:sha-<commit>. IMAGE_REGISTRY is a setting, such as
 # ghcr.io/<owner> in site/config/settings.env, and `docker login` must reach it. The commit is
-# the last one that changed src/<SRC>/, which must have no uncommitted changes, so the tag
+# the last one that changed modules/<id>/<SRC>/, which must have no uncommitted changes, so the tag
 # names the source exactly. PLATFORM is the servers' (default linux/amd64).
 set -eu
 cd "$(dirname "$0")/../.."

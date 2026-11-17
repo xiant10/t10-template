@@ -8,7 +8,7 @@ environment, with nothing pointing back into the checkout, so it runs here or on
     compose.sh         docker compose on this bundle; scripts/compose.sh and the host both run it
     foundation/, modules/<id>/, site/
                        each part's compose/, config/, scripted/, pack/ and init-db.sh, copied;
-                       for a module built from src/, its pack from src/<SRC>/module/, and its
+                       for a module built from modules/<id>/src/, its pack from modules/<id>/<SRC>/module/, and its
                        agent.json given what its tools need (below)
     modules/<id>/standard/<name>.yml
                        each module's standard wiring for base, local and build, from its

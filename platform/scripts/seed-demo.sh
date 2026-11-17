@@ -6,7 +6,7 @@
 # A hook gets ENV (local or k8s-local), AUTH_URL (auth-server's published address), T10_COMPOSE
 # (this project's scripts/compose.sh, for `exec` into a container), T10_PG_USER (Postgres's
 # admin user), T10_PART and T10_MODULE, and can ask for a setting with
-# `python3 -I -B scripts/lib.py setting "$ENV" NAME`.
+# `python3 -I -B platform/scripts/lib.py setting "$ENV" NAME`.
 set -eu
 cd "$(dirname "$0")/../.."
 ENV=${ENV:-local}
