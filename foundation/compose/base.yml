@@ -65,6 +65,23 @@ services:
       - ./foundation/init-db.sh:/docker-entrypoint-initdb.d/10-foundation.sh:ro
       - postgres-data:/var/lib/postgresql/data
 
+  # Every database, dumped into the backups volume on a schedule (foundation/backup.sh). On by
+  # default on a server (its compose.sh sets COMPOSE_PROFILES=backup); `make backup` runs one
+  # dump anywhere. Its password comes from secrets.json, as every service's does.
+  backup:
+    image: ${POSTGRES_IMAGE}
+    profiles: [backup]
+    restart: unless-stopped
+    entrypoint: ["bash", "/backup.sh"]
+    environment:
+      BACKUP_EVERY: ${BACKUP_EVERY}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS}
+    volumes:
+      - ./foundation/backup.sh:/backup.sh:ro
+      - backups:/backups
+    depends_on:
+      postgres: {condition: service_healthy}
+
   # One-shot: the first platform admin, and the foundation's service accounts. Modules'
   # accounts come from their own seed (upstream U2).
   seed:
@@ -149,20 +166,24 @@ services:
       AGENT_CONTROL_URL: http://t10-agent-control:8085
     volumes:
       - ./foundation/config/ai-gateway-llm/config.yaml:/etc/ai-gateway/config.yaml:ro
+      # Its audit of every model call, kept when the container is recreated.
+      - llm-audit:/var/lib/ai-gateway-llm
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:18080/health"]
       <<: *health
     depends_on:
       t10-agent-control: {condition: service_healthy}
+      tools-state-init: {condition: service_completed_successfully}
 
-  # One-shot: a new named volume belongs to root, and the gateway runs as uid 100. Kubernetes
-  # does this with fsGroup.
+  # One-shot: a new named volume belongs to root, and the gateways run as uid 100: the tools
+  # gateway's state and the model gateway's audit. Kubernetes does this with fsGroup.
   tools-state-init:
     image: ${T10_AI_GATEWAY}
     user: "0"
-    entrypoint: ["chown", "-R", "100:101", "/var/lib/ai-gateway-tools"]
+    entrypoint: ["chown", "-R", "100:101", "/var/lib/ai-gateway-tools", "/var/lib/ai-gateway-llm"]
     volumes:
       - tools-state:/var/lib/ai-gateway-tools
+      - llm-audit:/var/lib/ai-gateway-llm
 
   ai-gateway-tools:
     image: ${T10_AI_GATEWAY}
@@ -287,6 +308,8 @@ services:
 
 volumes:
   postgres-data:
+  backups:
   tools-state:
+  llm-audit:
   agents:
   agent-ti-data:

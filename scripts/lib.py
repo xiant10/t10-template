@@ -344,7 +344,7 @@ def finish(note=""):
 
 
 # What the deployment bundle copies from each part, beside what scripts/render.py writes.
-BUNDLED = ("compose", "config", "scripted", "pack", "init-db.sh", "module-init-db.sh")
+BUNDLED = ("compose", "config", "scripted", "pack", "init-db.sh", "module-init-db.sh", "backup.sh")
 
 
 if __name__ == "__main__":

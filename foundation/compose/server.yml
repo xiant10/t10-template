@@ -1,10 +1,26 @@
 # Every server environment (dev, prod), over compose/base.yml: Caddy in front with TLS. Nothing else is published: people reach services only through Caddy.
 
+# On a server, every service rotates its logs and has a memory limit, both settings
+# (foundation/config/server/settings.env): MEM_LIMIT_LARGE for the databases and agents.
+# `make check` fails for a server environment with a service that has neither.
+x-limits: &limits
+  logging:
+    driver: local
+    options: {max-size: "${LOG_MAX_SIZE}", max-file: "${LOG_MAX_FILES}"}
+  mem_limit: ${MEM_LIMIT}
+x-limits-large: &large
+  logging:
+    driver: local
+    options: {max-size: "${LOG_MAX_SIZE}", max-file: "${LOG_MAX_FILES}"}
+  mem_limit: ${MEM_LIMIT_LARGE}
+
 services:
+  backup: *limits
   # Its sites are generated/<env>/Caddyfile, written by scripts/render.py from each part's public
   # addresses. Certificates live in the caddy-data volume. After the Caddyfile changes,
   # `make deploy` reloads it.
   caddy:
+    <<: *limits
     image: ${CADDY_IMAGE}
     restart: unless-stopped
     ports:
@@ -20,6 +36,21 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+
+  postgres: *large
+  agent-ti: *large
+  seed: *limits
+  auth-server: *limits
+  t10-agent-control: *limits
+  agent-routes: *limits
+  ai-gateway-llm: *limits
+  tools-state-init: *limits
+  ai-gateway-tools: *limits
+  t10-collab: *limits
+  t10-knowledge: *limits
+  t10-agents: *limits
+  ai-gateway-agent: *limits
+  workbench: *limits
 
 volumes:
   caddy-data:

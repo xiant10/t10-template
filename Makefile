@@ -11,14 +11,14 @@ ENV ?= local
 ifeq ($(ENV),local)
 SCRIPTED ?= $(if $(shell sed -n 's/^LLM_API_KEY=..*/x/p' site/secrets/local.env 2>/dev/null),,1)
 endif
-export ENV DEV SCRIPTED MODULE IMAGE
+export ENV DEV SCRIPTED MODULE IMAGE CONFIRM
 COMPOSE := scripts/compose.sh
 PY := python3 -I -B
 # The linters `make lint` runs, in Docker so nothing needs installing.
 RUFF := ghcr.io/astral-sh/ruff:0.8.4
 SHELLCHECK := koalaman/shellcheck:v0.10.0
 
-.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate secrets-key secrets-set secrets-edit lint test-template alone alone-down contract
+.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate secrets-key secrets-set secrets-edit lint test-template alone alone-down contract backup backup-pull restore
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -125,6 +125,15 @@ sync-module: ## For a module in its own repo: copy its pack out of its pinned im
 
 pin: ## Show what each foundation image's latest is; WRITE=1 rewrites the versions.env that pins it
 	@$(PY) scripts/resolve-tags.py $(if $(WRITE),--write)
+
+backup: ## Dump every database now into ENV's backups volume (on its host, for a server)
+	@$(PY) scripts/backup.py now $(ENV)
+
+backup-pull: ## Copy ENV's newest backup here, to backups/<env>/, checked and encrypted for .sops.yaml's keys
+	@$(PY) scripts/backup.py pull $(ENV)
+
+restore: ## Put a backup back, replacing every database: FILE=backups/<env>/… CONFIRM=<env>
+	@CONFIRM=$(CONFIRM) $(PY) scripts/backup.py restore $(ENV) "$(FILE)"
 
 rotate: ## How to rotate one secret: NAME=…; APPLY=1 rotates it in ENV (then FINISH=1 for a two-phase one)
 	@$(PY) scripts/secrets.py rotate $(NAME) $(if $(APPLY),$(ENV)) $(if $(FINISH),--finish)

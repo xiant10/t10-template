@@ -190,6 +190,25 @@ Compose never runs from the checkout. Every command first renders `generated/<en
 
 Compose files are read name by name (`base`, then each layer), part by part, with each module's standard file just before its own. `build.yml` is added for `DEV=1` and `scripted.yml` for `SCRIPTED=1`, from whichever parts have one. Edit the parts, never the bundle: it's rewritten on every command.
 
+## Running a server
+
+A server environment (`dev`, `prod`, or one built on them) runs on its host, `DEPLOY_HOST`, from the bundle `make deploy` copies to `DEPLOY_DIR`. `DEPLOY_SSH` holds any options ssh needs, such as `-p 2222 -i ~/.ssh/deploy`. The host needs Docker with Compose 2.24 or later, rsync, and a login to any private registry.
+
+| Command | Does |
+| --- | --- |
+| `make check ENV=<env>` | Everything that can be checked here first: no `TODO`, every image pinned and each module released as committed, secrets complete and encrypted, and every service with rotated logs and a memory limit |
+| `make deploy ENV=<env>` | `make check`, then copies the bundle with its secrets, starts it, and reloads Caddy |
+| `make smoke ENV=<env>` | Its public addresses, through Caddy |
+| `make ps`, `logs`, `down` with `ENV=<env>` | Run on the host, over SSH, on its bundle; `make up` there is `make deploy` |
+| `make down-all ENV=<env>` | Deletes its data: needs `CONFIRM=<env>` |
+| `make backup ENV=<env>` | Dumps every database now. The `backup` service also does it every `BACKUP_EVERY` seconds, keeping `BACKUP_KEEP_DAYS` days, on the host |
+| `make backup-pull ENV=<env>` | Copies the newest dump here, to `backups/<env>/` (never committed), after checking it's complete, encrypted for the keys in `site/secrets/.sops.yaml` |
+| `make restore ENV=<env> FILE=… CONFIRM=<env>` | Stops everything but Postgres, replaces every database with the dump, and starts it again (on a server, with `make deploy`) |
+
+Every service on a server rotates its logs (`LOG_MAX_SIZE`, `LOG_MAX_FILES`) and has a memory limit (`MEM_LIMIT`, or `MEM_LIMIT_LARGE` for Postgres and the agents), set in `foundation/config/server/settings.env`; override them in `site/config/<env>/settings.env`, or for one service in `site/compose/server.yml`. The model gateway's audit and the backups are volumes, so they outlive their containers.
+
+A backup is only as useful as the secrets it was taken with: `MODEL_KEY` and any module's data key decrypt what's in it, and they're in git, in `site/secrets/<env>.enc.env`. Pull backups off the host regularly; a host's own copies go with the host.
+
 ## Keeping up with the template
 
 ```sh

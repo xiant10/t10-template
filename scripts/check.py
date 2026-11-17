@@ -12,7 +12,8 @@
 5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
    module built from src/ needs `make release` first.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
-   `make deploy` can copy it to a host as it is.
+   `make deploy` can copy it to a host as it is. On a server, every service rotates its logs and
+   has a memory limit.
 7. In a project with a `template` git remote, a warning for each template file it edited,
    since `make template-update` may conflict there. Never a failure.
 """
@@ -130,6 +131,11 @@ if r.returncode == 0:
     outside = sorted({f"{name}: {v['source']}" for name, s in json.loads(r.stdout)["services"].items()
                       for v in s.get("volumes", []) if v.get("type") == "bind" and not v["source"].startswith(bundle)})
     check(f"generated/{ENV}/ mounts nothing from outside itself", not outside, "; ".join(outside))
+    if lib.shape(ENV) != "local":
+        bare = sorted(name for name, s in json.loads(r.stdout)["services"].items()
+                      if not s.get("mem_limit") or not s.get("logging", {}).get("options", {}).get("max-size"))
+        check(f"every service on {ENV} rotates its logs and has a memory limit", not bare,
+              "add them in that part's compose/server.yml, as foundation/compose/server.yml does: " + ", ".join(bare))
 
 # 7. Template files edited in this project.
 base = run("git", "merge-base", "HEAD", "template/main")

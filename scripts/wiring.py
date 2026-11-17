@@ -10,6 +10,7 @@ particular to it, and can override anything here (Compose merges its files over 
 
     base      every environment: the one-shots <id>-db and <id>-seed, its agent, its service
     local     local: its port published on 127.0.0.1, and for code in the project, built from src/
+    server    a server (dev, prod): rotated logs and a memory limit, as every service there
     build     DEV=1, for a module in its own repo: built from its checkout in src/
 
 And its standard secrets, which lib.inventory() adds before the module's own secrets.json.
@@ -56,6 +57,12 @@ def compose(m, name, in_project, src=None, env_file=True):
         return {"services": {service: {**(built if in_project else {}), **svc}}}
     if name == "build":
         return None if in_project else {"services": {service: built}}
+    if name == "server":
+        # As every service on a server (foundation/compose/server.yml): rotated logs, a memory limit.
+        limits = {"logging": {"driver": "local", "options": {"max-size": "${LOG_MAX_SIZE}", "max-file": "${LOG_MAX_FILES}"}},
+                  "mem_limit": "${MEM_LIMIT}"}
+        names = [service, f"{mid}-seed"] + ([f"{mid}-db"] if has_database(m) else [])
+        return {"services": {n: dict(limits) for n in names}}
     if name != "base":
         return None
 

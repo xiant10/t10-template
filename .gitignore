@@ -4,6 +4,9 @@
 # Written by scripts, never edited.
 /generated/
 
+# Backups copied off a host by `make backup-pull`: encrypted, but never committed.
+/backups/
+
 # Decrypted secrets must never be committed.
 *.dec
 *.dec.*

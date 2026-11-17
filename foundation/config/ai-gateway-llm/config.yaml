@@ -11,7 +11,8 @@ server:
 audit:
   enabled: true
   store: file
-  file_path: audit.jsonl
+  # On its own volume (compose/base.yml), so it outlives the container.
+  file_path: /var/lib/ai-gateway-llm/audit.jsonl
   buffer_size: 1000
   # Rolling file: rotate out to a timestamped backup once the active file
   # reaches max_size_mb, so the payload log never grows unbounded. Backups

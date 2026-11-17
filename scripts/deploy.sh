@@ -15,6 +15,7 @@ env=${ENV:-local}
 setting() { python3 -I -B scripts/lib.py setting "$env" "$1"; }
 host=$(setting DEPLOY_HOST)
 dir=$(setting DEPLOY_DIR)
+ssh_opts=$(setting DEPLOY_SSH)
 [ "$host" != TODO ] && [ "$dir" != TODO ] || { echo "set DEPLOY_HOST and DEPLOY_DIR in site/config/$env/settings.env" >&2; exit 1; }
 
 ENV=$env python3 -I -B scripts/check.py
@@ -24,6 +25,8 @@ trap 'python3 -I -B scripts/render.py "$env"' EXIT
 T10_BUNDLE_SECRETS=1 python3 -I -B scripts/render.py "$env"
 # The secret files keep their mode 600 on the host; --delete drops what the bundle no longer has.
 # --inplace keeps each file's inode, so a running container's bind mount sees the new content.
-ssh "$host" "mkdir -p '$dir'"
-rsync -a --inplace --delete "generated/$env/" "$host:$dir/"
-ssh "$host" "'$dir/compose.sh' up -d --wait --wait-timeout 300 --remove-orphans && '$dir/compose.sh' exec -T caddy caddy reload --config /etc/caddy/Caddyfile"
+# shellcheck disable=SC2086
+ssh $ssh_opts "$host" "mkdir -p '$dir'"
+rsync -a --inplace --delete -e "ssh $ssh_opts" "generated/$env/" "$host:$dir/"
+# shellcheck disable=SC2086
+ssh $ssh_opts "$host" "'$dir/compose.sh' up -d --wait --wait-timeout 300 --remove-orphans && '$dir/compose.sh' exec -T caddy caddy reload --config /etc/caddy/Caddyfile"

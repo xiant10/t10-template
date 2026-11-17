@@ -7,6 +7,11 @@
 #   SCRIPTED=1 scripts/compose.sh up -d      # adds compose/scripted.yml: a scripted model; no LLM_API_KEY needed
 #                                            # (make turns it on by itself on local while there's no LLM_API_KEY)
 #   ENV=dev scripts/compose.sh config         # any environment: local, dev, prod, or one in site/config/
+#   ENV=prod scripts/compose.sh logs -f auth-server   # a server's: run on its host, over SSH
+#
+# For a server environment, `config` runs here, on its bundle; every other command runs on its
+# host (DEPLOY_HOST, with DEPLOY_SSH's options) on the bundle `make deploy` put there, and `up`
+# is `make deploy`. Deleting its data (`down -v`) needs CONFIRM=<env>.
 set -eu
 cd "$(dirname "$0")/.."
 env=${ENV:-local}
@@ -38,6 +43,23 @@ fi
 if [ "$shape" = local ]; then
 	python3 -I -B scripts/render.py "$env"
 	exec "generated/$env/compose.sh" "$@"
+fi
+if [ "${1:-}" != config ]; then
+	case " $* " in
+	" up "*) echo "on $env, make deploy ENV=$env starts it, after make check" >&2; exit 1 ;;
+	*" -v "* | *" --volumes "*) [ "${CONFIRM:-}" = "$env" ] || { echo "this deletes $env's data: run it again with CONFIRM=$env" >&2; exit 1; } ;;
+	esac
+	setting() { python3 -I -B scripts/lib.py setting "$env" "$1"; }
+	host=$(setting DEPLOY_HOST)
+	dir=$(setting DEPLOY_DIR)
+	# Each argument single-quoted for the host's shell.
+	args=""
+	for a in "$@"; do args="$args '$(printf %s "$a" | sed "s/'/'\\\\''/g")'"; done
+	tty=""
+	[ ! -t 0 ] || [ ! -t 1 ] || tty=-t
+	opts=$(setting DEPLOY_SSH)
+	# shellcheck disable=SC2086
+	exec ssh $tty $opts "$host" "'$dir/compose.sh'$args"
 fi
 # A server environment's bundle holds its secrets only while Compose runs here.
 T10_BUNDLE_SECRETS=1 python3 -I -B scripts/render.py "$env"

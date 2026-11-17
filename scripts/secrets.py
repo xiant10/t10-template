@@ -179,12 +179,9 @@ def edit(env):
 
 
 def on_host(env, *cmd):
-    """Runs a command in the environment's auth-server: here for local, else over SSH on its host."""
-    if lib.shape(env) == "local":
-        args = [str(lib.ROOT / "scripts/compose.sh"), "exec", "-T", "auth-server", *cmd]
-    else:
-        cfg = lib.settings(env)
-        args = ["ssh", cfg["DEPLOY_HOST"], f"'{cfg['DEPLOY_DIR']}/compose.sh' exec -T auth-server " + " ".join(cmd)]
+    """Runs a command in the environment's auth-server: here for local, else on its host
+    (scripts/compose.sh runs a server's commands there, over SSH)."""
+    args = [str(lib.ROOT / "scripts/compose.sh"), "exec", "-T", "auth-server", *cmd]
     r = subprocess.run(args, capture_output=True, text=True, env=dict(os.environ, ENV=env))
     if r.returncode != 0:
         sys.exit(f"{' '.join(cmd)}: {(r.stderr or r.stdout).strip()[-400:]}")

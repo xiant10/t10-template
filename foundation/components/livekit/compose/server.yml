@@ -1,7 +1,21 @@
-# The livekit component on a server: LiveKit for real.
+# The livekit component on a server: LiveKit for real, and rotated logs and a memory limit, as
+# foundation/compose/server.yml says. YAML anchors don't reach across files, so these repeat its.
+x-limits: &limits
+  logging:
+    driver: local
+    options: {max-size: "${LOG_MAX_SIZE}", max-file: "${LOG_MAX_FILES}"}
+  mem_limit: ${MEM_LIMIT}
+x-limits-large: &large
+  logging:
+    driver: local
+    options: {max-size: "${LOG_MAX_SIZE}", max-file: "${LOG_MAX_FILES}"}
+  mem_limit: ${MEM_LIMIT_LARGE}
+
 
 services:
+  t10-livekit-agent: *large
   livekit-server:
+    <<: *large
     # Media goes straight to the host, not through Caddy, so its ports are published as is and
     # it advertises the host's public IP.
     command: --bind 0.0.0.0 --node-ip=${LIVEKIT_NODE_IP}

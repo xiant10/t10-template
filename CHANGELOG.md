@@ -4,6 +4,17 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.4.0 (unreleased)
+
+Running a server ([`docs/guide.md`](docs/guide.md#running-a-server)).
+
+- **Backups.** A `backup` service dumps every database daily on a server (`BACKUP_EVERY`, `BACKUP_KEEP_DAYS`). `make backup`, `make backup-pull` (checked, then encrypted with age for the keys in `site/secrets/.sops.yaml`, into `backups/<env>/`), and `make restore FILE=… CONFIRM=<env>`.
+- **Logs and memory.** Every service on a server rotates its logs and has a memory limit (`LOG_MAX_SIZE`, `LOG_MAX_FILES`, `MEM_LIMIT`, `MEM_LIMIT_LARGE`); `make check` fails for a service without them.
+- **Server commands run on the host.** `make ps`, `logs`, `down`, `backup` and `rotate` with a server's `ENV` run there over SSH; `DEPLOY_SSH` holds ssh options. `make down-all` on a server needs `CONFIRM=<env>`.
+- The model gateway's audit is on a volume, so it outlives the container.
+
+**In a project:** a module's own Compose service that isn't from the standard wiring needs `logging` and `mem_limit` in that module's `compose/server.yml`, as `foundation/compose/server.yml` does, or `make check` fails for a server.
+
 ## v0.3.0 (Nov 16, 2026)
 
 A module is proven alone before it meets the foundation ([`docs/integration.md`](docs/integration.md)).

@@ -134,6 +134,7 @@ For `dev` (the same for `prod`):
 4. `make check ENV=dev` fails while any `TODO` is left, or a module's pinned image is older than its code in `src/`.
 5. `make deploy ENV=dev` copies the bundle to the host and starts it behind Caddy, with TLS.
 6. `make smoke ENV=dev` checks the public addresses.
+7. Backups run on the host every day. `make backup-pull ENV=dev` copies the newest here, encrypted; do it on a schedule, since the host's own copies go with the host. Restoring one is `make restore ENV=dev FILE=… CONFIRM=dev`. Running a server is in [`guide.md`](guide.md#running-a-server).
 
 Another environment, such as `uat`, needs only `site/config/uat/settings.env` with `SHAPE=prod` (or `dev`) and its own values.
 

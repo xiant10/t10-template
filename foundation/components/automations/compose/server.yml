@@ -1,0 +1,15 @@
+# The automations component on a server, over its base.yml: rotated logs and a memory limit, as
+# foundation/compose/server.yml says. YAML anchors don't reach across files, so these repeat its.
+x-limits: &limits
+  logging:
+    driver: local
+    options: {max-size: "${LOG_MAX_SIZE}", max-file: "${LOG_MAX_FILES}"}
+  mem_limit: ${MEM_LIMIT}
+x-limits-large: &large
+  logging:
+    driver: local
+    options: {max-size: "${LOG_MAX_SIZE}", max-file: "${LOG_MAX_FILES}"}
+  mem_limit: ${MEM_LIMIT_LARGE}
+
+services:
+  t10-automations: *limits

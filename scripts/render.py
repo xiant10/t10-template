@@ -221,6 +221,8 @@ def compose_script(env_name, standard):
              "# docker compose on this bundle: each part's Compose files and settings, the pinned versions,",
              "# the secrets, and what modules add. Runs here, or on the host `make deploy` copies it to.",
              "set -eu", 'cd "$(dirname "$0")"', f"export T10_ENV={env_name} T10_SHAPE={lib.shape(env_name)}",
+             *(["# A server runs its scheduled backups (the backup service in foundation/compose/base.yml).",
+                'export COMPOSE_PROFILES="${COMPOSE_PROFILES:-backup}"'] if lib.shape(env_name) != "local" else []),
              f'files="{files}"']
     if lib.shape(env_name) == "local":
         for var, name in (("DEV", "build"), ("SCRIPTED", "scripted")):
