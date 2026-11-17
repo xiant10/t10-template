@@ -21,6 +21,7 @@ From the project's root:
 
 ```sh
 make test MODULE=__id__        # vet and tests, in Docker
+make contract MODULE=__id__    # it alone, with its own Postgres: the module contract (docs/integration.md)
 make up                        # builds it from here and runs it with the foundation
 make reload MODULE=__id__      # after a change: rebuild and restart it, and what reads its pack
 make smoke                     # the whole stack end to end, including this module's hooks

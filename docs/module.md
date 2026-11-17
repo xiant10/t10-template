@@ -25,6 +25,8 @@ It runs as it is. Then make it yours:
 
 Commit `src/<id>/` and `modules/<id>/` together: one commit is one change to the module. Before calling it done, `make verify` runs everything from empty volumes.
 
+A module is proven alone before it meets the foundation: `make test` (its code), then `make contract MODULE=<id>` (it keeps the contract, run by itself with its own Postgres and auth-server stood in for), then `make up && make smoke` (it plugs in). The gates, and what each proves, are [`integration.md`](integration.md).
+
 ## What the template gives every module
 
 A module's own folders hold only what's particular to it. The rest is the template's, so a fix there reaches every module with `make template-update`:

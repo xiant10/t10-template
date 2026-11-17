@@ -322,6 +322,28 @@ class EncryptedSecrets(TestCase):
         self.assertEqual(len(r.stdout.strip()), 4)
 
 
+@unittest.skipUnless(DOCKER, "needs docker")
+class Alone(TestCase):
+    """Gate 2: a module run alone keeps the contract, and its pack is checked."""
+
+    def test_new_module_keeps_the_contract_alone(self):
+        self.p.write("site/config/settings.env", f"PROJECT_NAME=test{os.getpid()}\nFOUNDATION=\n")
+        self.p.new_module("crm")
+        self.addCleanup(self.p.run, *PY, "scripts/alone.py", "crm", "down", check=False)
+        self.p.run(*PY, "scripts/alone.py", "crm", "up", QUIET="1")
+        r = self.p.run(*PY, "scripts/contract.py", "crm", check=False)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("crm_whoami: an agent with the catalog's actions may call it", r.stdout)
+
+    def test_a_broken_pack_fails(self):
+        self.p.new_module("crm")
+        env = self.p.dir / "src/crm/module/module.env"
+        env.write_text(env.read_text().replace("PUBLIC_URL_SETTING=CRM_PUBLIC_URL", "PUBLIC_URL_SETTING=APP_URL"))
+        r = self.p.run(*PY, "scripts/contract.py", "crm", "http://127.0.0.1:9", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("FAIL PUBLIC_URL_SETTING is CRM_PUBLIC_URL", r.stdout)
+
+
 class TemplateUpdate(unittest.TestCase):
     """make template-update: the template's files come from it; the project's stay its own."""
 

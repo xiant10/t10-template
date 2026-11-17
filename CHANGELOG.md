@@ -4,6 +4,16 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.3.0 (unreleased)
+
+A module is proven alone before it meets the foundation ([`docs/integration.md`](docs/integration.md)).
+
+- **`make alone MODULE=<id>`** runs a module's service by itself, with its own Postgres and no foundation. With `T10_STANDALONE=1`, the kit (`module.NewAccess`) stands in for auth-server: `Bearer person` is a tenant admin, `Bearer agent` an agent holding the catalog's actions. It refuses to start beside `AUTH_ISSUER`.
+- **`make contract MODULE=<id>`** checks a module's pack and, run alone, everything its service must answer, including that each tool is callable with the catalog's actions.
+- **`make verify`** runs the gates in order: `test`, each module's `contract`, then the full stack.
+
+**In a project:** a module made before this release: in its `main.go`, call `module.NewAccess(moduleID, service)` instead of `module.NewAuth`, so `make contract` can run it alone. A module in its own repo that doesn't use the kit answers `T10_STANDALONE=1` as `docs/integration.md` says.
+
 ## v0.2.0 (Nov 16, 2026)
 
 Server secrets: encrypted, per service, and rotatable.

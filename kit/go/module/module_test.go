@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -131,4 +133,27 @@ func TestToolArgumentsAreChecked(t *testing.T) {
 func fmtJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func TestStandaloneOnlyAlone(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, "permissions"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "permissions", "crm.yaml"), []byte(`{"agent": {"actions": ["crm:read"]}}`), 0o644)
+	t.Setenv("T10_PACK_DIR", dir)
+	t.Setenv("T10_STANDALONE", "1")
+	t.Setenv("AUTH_ISSUER", "")
+	access, err := NewAccess("crm", "t10-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := serve(t, testModule(access), "GET", "/v1/access", "person", ""); code != 200 {
+		t.Errorf("standalone person: %d", code)
+	}
+	if _, err := access.Agent(context.Background(), "Bearer agent", "crm:write"); err == nil {
+		t.Error("standalone agent used an action the catalog doesn't grant")
+	}
+	t.Setenv("AUTH_ISSUER", "http://auth.example")
+	if _, err := NewAccess("crm", "t10-crm"); err == nil {
+		t.Error("standalone mode started beside AUTH_ISSUER")
+	}
 }

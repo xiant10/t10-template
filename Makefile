@@ -18,7 +18,7 @@ PY := python3 -I -B
 RUFF := ghcr.io/astral-sh/ruff:0.8.4
 SHELLCHECK := koalaman/shellcheck:v0.10.0
 
-.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate secrets-key secrets-set secrets-edit lint test-template
+.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate secrets-key secrets-set secrets-edit lint test-template alone alone-down contract
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -77,11 +77,23 @@ check: ## Checks that need no running stack
 test: ## Each module's own tests, from src/, in Docker: make test (MODULE=<id> for one)
 	@scripts/test.sh
 
+alone: ## Run one module by itself, with its own Postgres and no foundation: MODULE=<id> (alone-down stops it)
+	@$(PY) scripts/alone.py "$(MODULE)" up
+
+alone-down:
+	@$(PY) scripts/alone.py "$(MODULE)" down
+
+contract: ## Check one module keeps the module contract on its own: its pack, then its service run alone (MODULE=<id>)
+	@QUIET=1 $(PY) scripts/alone.py "$(MODULE)" up >/dev/null
+	@$(PY) scripts/contract.py "$(MODULE)"; s=$$?; $(PY) scripts/alone.py "$(MODULE)" down >/dev/null 2>&1; exit $$s
+
 reload: ## After changing a module in src/: rebuild and restart it, and what reads its pack: MODULE=<id>
 	@scripts/reload.sh
 
-verify: ## Everything, from empty volumes: test, down-all, up, seed-demo, check, smoke
+verify: ## Every gate, from empty volumes: test, each module alone (contract), then down-all, up, seed-demo, check, smoke
 	@$(MAKE) --no-print-directory test
+	@$(PY) scripts/lib.py built | while read -r id src service; do \
+		$(MAKE) --no-print-directory contract MODULE=$$id || exit 1; done
 	@$(MAKE) --no-print-directory down-all
 	@$(MAKE) --no-print-directory up
 	@$(MAKE) --no-print-directory seed-demo

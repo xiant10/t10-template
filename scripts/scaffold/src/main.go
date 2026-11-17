@@ -35,13 +35,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	auth, err := module.NewAuth(moduleID, service)
+	access, err := module.NewAccess(moduleID, service)
 	if err != nil {
 		log.Fatal(err)
 	}
 	s := &Server{Module: module.Module{
 		ID: moduleID, Service: service, Label: "__Id__", PublicURL: os.Getenv("__ID___PUBLIC_URL"),
-		Access: auth, Ping: pool.Ping, Tools: tools(),
+		Access: access, Ping: pool.Ping, Tools: tools(),
 	}}
 	srv := &http.Server{Addr: cmp.Or(os.Getenv("LISTEN_ADDR"), ":__port__"), Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {

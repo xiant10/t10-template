@@ -87,8 +87,9 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route and a turn with each module's agent, then each module's `hooks/smoke.py` |
 | `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants reached every place, Compose renders, the bundle mounts nothing from outside itself, and on a server, no `TODO` is left and each module from `src/` is released as committed |
 | `make test` | Each module's own tests from `src/`, in Docker (`MODULE=<id>` for one) |
+| `make contract MODULE=<id>` | One module alone, with its own Postgres and no foundation: its pack and the contract its service must keep ([`integration.md`](integration.md)); `make alone` keeps it running |
 | `make reload MODULE=<id>` | After changing a module in `src/`: rebuild and restart it, and what reads its pack if that changed |
-| `make verify` | Everything from empty volumes: `test`, `down-all`, `up`, `seed-demo`, `check`, `smoke`. Run it before calling a change done |
+| `make verify` | Every gate from empty volumes: `test`, each module's `contract`, then `down-all`, `up`, `seed-demo`, `check`, `smoke`. Run it before calling a change done |
 | `make new-module ID=<id>` | A new module: its code in `src/<id>/` and its deployment in `modules/<id>/` ([`module.md`](module.md)) |
 | `make release MODULE=<id>` | Build a module from `src/`, push it to `IMAGE_REGISTRY` and pin it, for servers |
 | `make config-show SVC=<service>` | A service's settings, and which file each came from |
