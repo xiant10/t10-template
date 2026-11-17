@@ -4,7 +4,7 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
-## v0.4.0 (unreleased)
+## v0.4.0 (Nov 16, 2026)
 
 Running a server ([`docs/guide.md`](docs/guide.md#running-a-server)).
 
