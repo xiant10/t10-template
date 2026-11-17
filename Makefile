@@ -18,7 +18,7 @@ PY := python3 -I -B
 RUFF := ghcr.io/astral-sh/ruff:0.8.4
 SHELLCHECK := koalaman/shellcheck:v0.10.0
 
-.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate lint test-template
+.PHONY: help doctor clone status secrets-init render up down down-all ps logs deploy seed-demo smoke check test reload verify release config-show routes-publish new-module template-update sync-module pin rotate secrets-key secrets-set secrets-edit lint test-template
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -35,7 +35,7 @@ status: ## Branch and changes in this repo and in each module repo cloned into s
 	@git status -sb | head -1; git status --short
 	@$(PY) scripts/lib.py sources | while read -r dir url; do [ ! -d "src/$$dir" ] || { printf '\n%s: ' "src/$$dir"; git -C "src/$$dir" status -sb | head -1; git -C "src/$$dir" status --short; }; done
 
-secrets-init: ## Add missing secrets to site/secrets/<env>.env, keeping existing ones
+secrets-init: ## Add missing secrets for ENV, keeping existing ones (a server's encrypted, once secrets-key is done)
 	@$(PY) scripts/secrets.py init $(ENV)
 
 render: ## Write the bundle in generated/<env>/ that up and deploy run; every command does this first
@@ -114,8 +114,17 @@ sync-module: ## For a module in its own repo: copy its pack out of its pinned im
 pin: ## Show what each foundation image's latest is; WRITE=1 rewrites the versions.env that pins it
 	@$(PY) scripts/resolve-tags.py $(if $(WRITE),--write)
 
-rotate: ## How to rotate one secret: make rotate NAME=AUTH_ADMIN_PASSWORD
-	@$(PY) scripts/secrets.py rotate $(NAME)
+rotate: ## How to rotate one secret: NAME=…; APPLY=1 rotates it in ENV (then FINISH=1 for a two-phase one)
+	@$(PY) scripts/secrets.py rotate $(NAME) $(if $(APPLY),$(ENV)) $(if $(FINISH),--finish)
+
+secrets-key: ## This machine's age key and site/secrets/.sops.yaml; RECIPIENT=age1… adds a key, BREAKGLASS=1 makes one
+	@$(PY) scripts/secrets.py $(if $(RECIPIENT),recipient $(RECIPIENT),key $(if $(BREAKGLASS),--breakglass))
+
+secrets-set: ## Set one secret, typed in, not shown: make secrets-set ENV=prod NAME=LLM_API_KEY
+	@$(PY) scripts/secrets.py set $(ENV) $(NAME)
+
+secrets-edit: ## Edit an environment's encrypted secrets in an editor: make secrets-edit ENV=prod
+	@$(PY) scripts/secrets.py edit $(ENV)
 
 lint: ## Lint the template's Python and shell scripts, in Docker
 	@docker run --rm -v "$(CURDIR):/w" -w /w $(RUFF) check --quiet scripts tests

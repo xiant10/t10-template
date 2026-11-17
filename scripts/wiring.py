@@ -64,13 +64,11 @@ def compose(m, name, in_project, src=None, env_file=True):
         "image": f"${{T10_{u}}}",
         "restart": "unless-stopped",
         **({"env_file": f"./env/{service}.env"} if env_file else {}),
+        # Its secrets come from secrets(), below, as every service's do.
         "environment": {
             "AUTH_ISSUER": "${AUTH_PUBLIC_URL}",
             "AUTH_URL": "http://auth-server:8081",
-            "AUTH_CLIENT_SECRET": f"${{{account_secret(service)}}}",
-            "AUTH_WEB_CLIENT_SECRET": f"${{{u}_WEB_CLIENT_SECRET}}",
             f"{u}_PUBLIC_URL": f"${{{u}_PUBLIC_URL}}",
-            f"{u}_SESSION_KEY": f"${{{u}_SESSION_KEY}}",
             # Turns go through ai-gateway-agent, which routes Agent-Name: <AGENT> to agent-ti.
             "AGENT_URL": "http://ai-gateway-agent:18090/agent",
         },
@@ -88,13 +86,10 @@ def compose(m, name, in_project, src=None, env_file=True):
         services[f"{mid}-db"] = {
             "image": "${POSTGRES_IMAGE}",
             "entrypoint": ["sh", "-c", "sh /init-db.sh && { [ ! -f /module-init-db.sh ] || sh /module-init-db.sh; }"],
-            "environment": {"PGHOST": "postgres", "PGUSER": "t10", "PGPASSWORD": "${POSTGRES_PASSWORD}",
-                            "MODULE_DB": db, "MODULE_DB_PASSWORD": f"${{{u}_DB_PASSWORD}}",
-                            f"{u}_DB_PASSWORD": f"${{{u}_DB_PASSWORD}}"},
+            "environment": {"PGHOST": "postgres", "PGUSER": "t10", "MODULE_DB": db},
             "volumes": ["./foundation/module-init-db.sh:/init-db.sh:ro"],
             "depends_on": {"postgres": {"condition": "service_healthy"}},
         }
-        app["environment"]["DATABASE_URL"] = f"postgres://{db}:${{{u}_DB_PASSWORD}}@postgres:5432/{db}?sslmode=disable"
         app["depends_on"][f"{mid}-db"] = {"condition": "service_completed_successfully"}
 
     # Its accounts in auth-server, SERVICE_ACCOUNTS (upstream U2: auth-setup's list is fixed).
@@ -103,19 +98,15 @@ def compose(m, name, in_project, src=None, env_file=True):
         "image": "${T10_AUTH_SERVER}",
         "entrypoint": ["/bin/sh", "-c", "set -eu\n" + "".join(
             f'AUTHCTL_SERVICE_SECRET="$${account_secret(a)}" authctl service-add --if-missing --name={a}\n' for a in names)],
-        "environment": {"DATABASE_URL": "postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable",
-                        **{account_secret(a): f"${{{account_secret(a)}}}" for a in names}},
         "depends_on": {"seed": {"condition": "service_completed_successfully"}},
     }
     services["auth-server"] = {"depends_on": {f"{mid}-seed": {"condition": "service_completed_successfully"}}}
 
     agent = m.get("AGENT")
     if agent:
-        # Its agent, which t10-agents copies into agent-ti's agents, and its runtime's secret,
-        # which its agent.json reads.
+        # Its agent, which t10-agents copies into agent-ti's agents; its runtime's secret, which
+        # its agent.json reads, is in secrets().
         services["t10-agents"] = {"volumes": [f"./modules/{mid}/pack/agents/{agent}:/module-agents/{agent}:ro"]}
-        services["agent-ti"] = {"environment": {
-            f"{u}_AUTH_CLIENT_SECRET": f"${{{account_secret(m.get('AGENT_RUNTIME', f'agent-ti-{mid}'))}}}"}}
 
     services[service] = app
     # The tools gateway lists its /mcp for the harnesses; workbench reads its manifest.
@@ -125,24 +116,38 @@ def compose(m, name, in_project, src=None, env_file=True):
 
 
 def secrets(m):
-    """A module's standard secrets, in the form of foundation/secrets.json."""
+    """A module's standard secrets, in the form of foundation/secrets.json, each with the
+    services that get it (`env`), and its uses of the foundation's POSTGRES_PASSWORD."""
     mid, u, service = m["MODULE_ID"], upper(m["MODULE_ID"]), m["SERVICE"]
     db = mid.replace("-", "_")
     out = []
+    pg = {f"{mid}-seed": {"DATABASE_URL": "postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable"}}
     if has_database(m):
+        pg[f"{mid}-db"] = {"PGPASSWORD": "${POSTGRES_PASSWORD}"}
         out.append({"name": f"{u}_DB_PASSWORD", "generate": "hex32", "consumers": [service, f"postgres role {db}"],
-                    "rotate": f"Change the value, then make up: {mid}-db sets the role's password, and {service} restarts with it."})
+                    "rotate": f"Change the value, then make up: {mid}-db sets the role's password, and {service} restarts with it.", "rotation": "replace",
+                    "env": {f"{mid}-db": {"MODULE_DB_PASSWORD": f"${{{u}_DB_PASSWORD}}", f"{u}_DB_PASSWORD": f"${{{u}_DB_PASSWORD}}"},
+                            service: {"DATABASE_URL": f"postgres://{db}:${{{u}_DB_PASSWORD}}@postgres:5432/{db}?sslmode=disable"}}})
+    out.append({"name": "POSTGRES_PASSWORD", "env": pg})
     runtime = m.get("AGENT_RUNTIME") if m.get("AGENT") else None
     for a in accounts(m):
         user = f"agent-ti ({mid} agent)" if a == runtime else service if a == service else a
         roll = "agent-ti" if a == runtime else service if a == service else "what uses it"
+        ref = f"${{{account_secret(a)}}}"
+        env = {f"{mid}-seed": {account_secret(a): ref}}
+        if a == service:
+            env[service] = {"AUTH_CLIENT_SECRET": ref}
+        if a == runtime:
+            env["agent-ti"] = {f"{u}_AUTH_CLIENT_SECRET": ref}
         out.append({"name": account_secret(a), "generate": "hex32", "consumers": [user, f"auth-server account {a}"],
-                    "rotate": f"authctl service-rotate --name={a}, roll {roll}, then service-finish."})
+                    "rotate": f"authctl service-rotate --name={a}, roll {roll}, then service-finish.", "rotation": f"account:{a}", "env": env})
     out.append({"name": f"{u}_WEB_CLIENT_SECRET", "generate": "hex32",
                 "consumers": [f"{service} (AUTH_WEB_CLIENT_SECRET)", "secret_sha256 in clients.yaml"],
-                "rotate": f"Change, re-render clients.yaml, roll auth-server and {service} together."})
+                "rotate": f"Change, re-render clients.yaml, roll auth-server and {service} together.", "rotation": "replace",
+                "env": {service: {"AUTH_WEB_CLIENT_SECRET": f"${{{u}_WEB_CLIENT_SECRET}}"}}})
     out.append({"name": f"{u}_SESSION_KEY", "generate": "b64key", "consumers": [service],
-                "rotate": f"Change and roll {service}. Everyone signs in again."})
+                "rotate": f"Change and roll {service}. Everyone signs in again.", "rotation": "replace",
+                "env": {service: {f"{u}_SESSION_KEY": f"${{{u}_SESSION_KEY}}"}}})
     return out
 
 

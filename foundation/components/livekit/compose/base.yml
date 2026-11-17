@@ -12,7 +12,6 @@ services:
     image: ${LIVEKIT_IMAGE}
     restart: unless-stopped
     environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
       LIVEKIT_CONFIG: "rtc: {tcp_port: ${LIVEKIT_RTC_TCP_PORT}, udp_port: ${LIVEKIT_RTC_UDP_PORT}}"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:7880 || exit 0"]
@@ -25,26 +24,17 @@ services:
     environment:
       LIVEKIT_URL: ws://livekit-server:7880
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       # Read even when speech goes through OpenAI.
       DASHSCOPE_API_KEY: unused
       AUTH_URL: http://auth-server:8081
-      AUTH_CLIENT_SECRET: ${LIVEKIT_AGENT_SECRET}
       # Replies come from the agents, which keep the conversation, so calls are saved with the chat.
       AGENT_PI_URL: http://agent-pi:9800/agent
       # Routes by session ID to the replica that holds it, from the published route document.
       AGENT_CONTROL_URL: http://t10-agent-control:8085
-      # Speech; empty means the provider key ai-gateway-llm holds.
-      OPENAI_SPEECH_API_KEY: ${OPENAI_SPEECH_API_KEY:-${LLM_API_KEY}}
     depends_on:
       livekit-server: {condition: service_healthy}
       agent-routes: {condition: service_completed_successfully}
       agent-pi: {condition: service_healthy}
-
-  seed:
-    environment:
-      LIVEKIT_AGENT_SECRET: ${LIVEKIT_AGENT_SECRET}
-
 
   workbench:
     environment:

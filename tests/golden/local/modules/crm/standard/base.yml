@@ -10,10 +10,7 @@ services:
     environment:
       PGHOST: postgres
       PGUSER: t10
-      PGPASSWORD: "${POSTGRES_PASSWORD}"
       MODULE_DB: crm
-      MODULE_DB_PASSWORD: "${CRM_DB_PASSWORD}"
-      CRM_DB_PASSWORD: "${CRM_DB_PASSWORD}"
     volumes:
       - ./foundation/module-init-db.sh:/init-db.sh:ro
     depends_on:
@@ -28,10 +25,6 @@ services:
         set -eu
         AUTHCTL_SERVICE_SECRET="$$T10_CRM_SECRET" authctl service-add --if-missing --name=t10-crm
         AUTHCTL_SERVICE_SECRET="$$AGENT_TI_CRM_SECRET" authctl service-add --if-missing --name=agent-ti-crm
-    environment:
-      DATABASE_URL: "postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable"
-      T10_CRM_SECRET: "${T10_CRM_SECRET}"
-      AGENT_TI_CRM_SECRET: "${AGENT_TI_CRM_SECRET}"
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -42,9 +35,6 @@ services:
   t10-agents:
     volumes:
       - ./modules/crm/pack/agents/crm:/module-agents/crm:ro
-  agent-ti:
-    environment:
-      CRM_AUTH_CLIENT_SECRET: "${AGENT_TI_CRM_SECRET}"
   t10-crm:
     image: "${T10_CRM}"
     restart: unless-stopped
@@ -52,12 +42,8 @@ services:
     environment:
       AUTH_ISSUER: "${AUTH_PUBLIC_URL}"
       AUTH_URL: http://auth-server:8081
-      AUTH_CLIENT_SECRET: "${T10_CRM_SECRET}"
-      AUTH_WEB_CLIENT_SECRET: "${CRM_WEB_CLIENT_SECRET}"
       CRM_PUBLIC_URL: "${CRM_PUBLIC_URL}"
-      CRM_SESSION_KEY: "${CRM_SESSION_KEY}"
       AGENT_URL: http://ai-gateway-agent:18090/agent
-      DATABASE_URL: "postgres://crm:${CRM_DB_PASSWORD}@postgres:5432/crm?sslmode=disable"
     read_only: true
     tmpfs:
       - /tmp

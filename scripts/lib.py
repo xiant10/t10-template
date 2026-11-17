@@ -35,17 +35,22 @@ GENERATED = ROOT / "generated"
 SECRETS = SITE / "secrets"
 
 
-def read_env(path):
-    """KEY=value lines; blank lines and # comments are skipped. A missing file is empty."""
+def parse_env(text, raw=False):
+    """KEY=value lines; blank lines and # comments are skipped. With raw, each value as written,
+    quotes and escapes kept."""
     out = {}
-    path = pathlib.Path(path)
-    if path.exists():
-        for line in path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                out[key.strip()] = value.strip().strip('"')
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            out[key.strip()] = value.strip() if raw else value.strip().strip('"')
     return out
+
+
+def read_env(path):
+    """A KEY=value file, as parse_env. A missing file is empty."""
+    path = pathlib.Path(path)
+    return parse_env(path.read_text()) if path.exists() else {}
 
 
 def source(folder):
@@ -160,10 +165,74 @@ def services_configured(env):
 
 
 def secrets_file(env):
-    """An environment's secrets in plain text, site/secrets/<env>.env: the only place they're
-    read from. Never committed. For a server environment it will be decrypted from
-    <env>.enc.env for as long as a command needs it (docs/plan.md, C2)."""
+    """An environment's secrets in plain text, site/secrets/<env>.env: local's, or a server
+    environment's before it's encrypted. Never committed."""
     return SECRETS / f"{env}.env"
+
+
+def encrypted_file(env):
+    """A server environment's secrets, encrypted with SOPS and age, site/secrets/<env>.enc.env.
+    Committed. The names stay readable, so a diff shows a secret added or removed; every value is
+    encrypted afresh on each write."""
+    return SECRETS / f"{env}.enc.env"
+
+
+SOPS_CONFIG = SECRETS / ".sops.yaml"
+_secrets_text = {}
+
+
+def sops(*args, stdin=None):
+    """scripts/sops.sh sops --config site/secrets/.sops.yaml ARGS: its output, or exit with its error."""
+    import subprocess
+    r = subprocess.run([str(ROOT / "scripts" / "sops.sh"), "sops", "--config", str(SOPS_CONFIG.relative_to(ROOT)), *args],
+                       cwd=ROOT, input=stdin, capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"sops {args[0]}: {r.stderr.strip()[-500:]}")
+    return r.stdout
+
+
+def secrets_text(env):
+    """An environment's secrets as KEY=value text: its plain file, or else its encrypted file,
+    decrypted in memory, never to disk. Empty when it has neither."""
+    if env not in _secrets_text:
+        if secrets_file(env).exists():
+            _secrets_text[env] = secrets_file(env).read_text()
+        elif encrypted_file(env).exists():
+            _secrets_text[env] = sops("decrypt", "--input-type", "dotenv", "--output-type", "dotenv",
+                                      str(encrypted_file(env).relative_to(ROOT)))
+        else:
+            _secrets_text[env] = ""
+    return _secrets_text[env]
+
+
+def secret_values(env, raw=False):
+    """An environment's secrets: {name: value}, as parse_env."""
+    return parse_env(secrets_text(env), raw)
+
+
+def has_secrets(env):
+    return secrets_file(env).exists() or encrypted_file(env).exists()
+
+
+def encrypts(env):
+    """Whether an environment's secrets are kept encrypted: every one but local, once the project
+    has site/secrets/.sops.yaml (`make secrets-key`)."""
+    return shape(env) != "local" and SOPS_CONFIG.exists()
+
+
+def write_secrets(env, text):
+    """Saves an environment's secrets: encrypted to <env>.enc.env when it encrypts, removing any
+    plain copy, else plain in <env>.env, mode 600."""
+    _secrets_text[env] = text
+    if encrypts(env):
+        out = sops("encrypt", "--input-type", "dotenv", "--output-type", "dotenv",
+                   "--filename-override", str(encrypted_file(env).relative_to(ROOT)), "/dev/stdin", stdin=text)
+        encrypted_file(env).write_text(out)
+        secrets_file(env).unlink(missing_ok=True)
+    else:
+        SECRETS.mkdir(parents=True, exist_ok=True)
+        secrets_file(env).write_text(text)
+        secrets_file(env).chmod(0o600)
 
 
 def versions_files():
@@ -196,19 +265,43 @@ def built(only=None):
     return found
 
 
-def inventory():
-    """Every secret, from each part's secrets.json: the foundation's, its components' that run,
-    each module's standard ones (scripts/wiring.py) then its own, and site's. A later entry with
-    the same name replaces an earlier one."""
+def secret_entries():
+    """Every entry in the inventory, merged by name: each part's secrets.json in order (the
+    foundation's, its components' that run, each module's standard ones from wiring.py then its
+    own, site's). A later entry's fields replace an earlier one's, except `env`, which is merged
+    service by service. An entry with no `generate` is a use: it gives a service a secret that
+    another part declares, or, with a fallback, one that may not exist (see foundation/secrets.json)."""
     out = {}
     standard = {d: m for d, _, m in modules()}
     for part in parts():
-        if part in standard:
-            out.update({s["name"]: s for s in wiring.secrets(standard[part])})
+        entries = wiring.secrets(standard[part]) if part in standard else []
         f = part / "secrets.json"
         if f.exists():
-            out.update({s["name"]: s for s in json.loads(f.read_text())["secrets"]})
+            entries += json.loads(f.read_text())["secrets"]
+        for e in entries:
+            have = out.setdefault(e["name"], {"name": e["name"]})
+            env = have.get("env", {})
+            for service, variables in e.get("env", {}).items():
+                env[service] = {**env.get(service, {}), **variables}
+            have.update({k: v for k, v in e.items() if k != "env"})
+            if env:
+                have["env"] = env
     return list(out.values())
+
+
+def inventory():
+    """Every secret this project has: the entries that declare one, with how to make it."""
+    return [e for e in secret_entries() if "generate" in e]
+
+
+def secret_env():
+    """{service: {variable: value with ${NAME} references}}: what each service gets from the
+    secrets, from every entry's `env`."""
+    out = {}
+    for e in secret_entries():
+        for service, variables in e.get("env", {}).items():
+            out.setdefault(service, {}).update(variables)
+    return out
 
 
 def grant(pack, m):
@@ -223,8 +316,9 @@ def grant(pack, m):
 def secrets_off():
     """The secrets of the components this project doesn't run. Their values may stay in
     site/secrets/, unused, so switching a component back on keeps them."""
+    on = {s["name"] for s in inventory()}
     return {s["name"] for d in components(off=True) if (d / "secrets.json").exists()
-            for s in json.loads((d / "secrets.json").read_text())["secrets"]}
+            for s in json.loads((d / "secrets.json").read_text())["secrets"] if "generate" in s} - on
 
 
 def compose_files(*names):

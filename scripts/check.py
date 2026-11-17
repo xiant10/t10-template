@@ -4,7 +4,8 @@
 1. Each module's folder is named for it, and its pack/ matches the pack in its pinned image
    (skipped if that image has none yet). A module built from src/ has no copy to compare.
 2. The environment's secrets are complete, and no prod value is a dev default.
-3. No secret's name is set in any part's config/.
+3. No secret's name is set in any part's config/, and no Compose file writes one: each
+   service gets its own from the parts' secrets.json (a project's own file only warns).
 4. Grants agree, as the foundation's check-module-agents.py requires: the actions in each
    catalog's agent block reached the harnesses, its agent's own grant, and every runtime
    clients.yaml gives its tools to. render.py puts them there; this catches a pack it can't.
@@ -60,6 +61,21 @@ names = {s["name"] for s in lib.inventory()}
 settings_files = [p for part in lib.parts() for p in (part / "config").rglob("*.env")]
 leaks = [f"{p.relative_to(lib.ROOT)}: {k}" for p in settings_files for k in lib.read_env(p) if k in names]
 check("no secret is set among settings", not leaks, "; ".join(leaks))
+
+# 3b. No secret written into a Compose file: each service gets its own from secrets.json's
+# `env`. A template file fails; a project's warns, since it still works through secrets.env.
+written = []
+for part in lib.parts():
+    for f in sorted((part / "compose").glob("*.yml")) if (part / "compose").exists() else []:
+        for n, line in enumerate(f.read_text().splitlines(), 1):
+            for ref in re.findall(r"\$\{([A-Z0-9_]+)", line):
+                if ref in names and not line.lstrip().startswith("#"):
+                    written.append((part, f"{f.relative_to(lib.ROOT)}:{n}: {ref}"))
+check("no template Compose file writes a secret", not [w for p, w in written if p.is_relative_to(lib.FOUNDATION)],
+      "; ".join(w for p, w in written if p.is_relative_to(lib.FOUNDATION)))
+for part, where in written:
+    if not part.is_relative_to(lib.FOUNDATION):
+        print(f"warn {where} writes a secret into Compose: give it an `env` in that part's secrets.json instead (docs/guide.md#secrets)")
 
 # 4. Grants. A module says what its agent tools need once, in its catalog's agent block, and
 # render.py gives it out; this checks that it reached every place in the bundle.

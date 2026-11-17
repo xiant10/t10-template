@@ -107,6 +107,28 @@ class FoundationOnly(TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("FOUNDATION names nothing", r.stderr)
 
+    def test_each_service_gets_only_its_own_secrets(self):
+        bundle = self.p.render()
+        workbench = (bundle / "secrets/workbench.env").read_text()
+        self.assertIn("WORKBENCH_SESSION_KEY=S_WORKBENCH_SESSION_KEY", workbench)
+        self.assertIn("DATABASE_URL=postgres://t10:S_POSTGRES_PASSWORD@postgres:5432/workbench?sslmode=disable", workbench)
+        self.assertNotIn("AUTH_TOTP_KEY", workbench)
+        self.assertEqual((bundle / "secrets/workbench.env").stat().st_mode & 0o777, 0o600)
+        self.assertIn("path: ./secrets/workbench.env", (bundle / "secrets.yml").read_text())
+
+    def test_a_secret_keeps_its_quoting(self):
+        self.p.secrets()
+        path = self.p.dir / "site/secrets/local.env"
+        path.write_text(path.read_text() + 'AUTH_SIGNING_KEY_CURRENT="-----BEGIN-----\\nabc\\n-----END-----"\n')
+        self.p.script("render.py", "local")
+        self.assertIn('AUTH_SIGNING_KEY_CURRENT="-----BEGIN-----\\nabc\\n-----END-----"', self.p.read("generated/local/secrets/auth-server.env"))
+
+    def test_livekit_placeholder_without_the_component(self):
+        self.p.write("site/config/settings.env", "PROJECT_NAME=test\nFOUNDATION=\n")
+        bundle = self.p.render()
+        self.assertIn("LIVEKIT_API_SECRET=livekit-off", (bundle / "secrets/auth-server.env").read_text())
+        self.assertFalse((bundle / "secrets/t10-livekit-agent.env").exists())
+
     @unittest.skipUnless(DOCKER, "needs docker")
     def test_compose_renders(self):
         self.p.secrets()
@@ -152,7 +174,7 @@ class StandardWiring(TestCase):
     def test_golden(self):
         """The bundle's wiring for one module. UPDATE_GOLDEN=1 rewrites it."""
         bundle = self.p.render()
-        names = ["modules/crm/standard/base.yml", "modules/crm/standard/local.yml", "modules.env",
+        names = ["modules/crm/standard/base.yml", "modules/crm/standard/local.yml", "secrets/t10-crm.env", "secrets/crm-seed.env", "modules.env",
                  "agent-routes.json", "clients.yaml", "modules/crm/pack/agents/crm/agent.json"]
         for name in names:
             got = (bundle / name).read_text()
@@ -217,6 +239,87 @@ class StandardWiring(TestCase):
         self.p.secrets()
         r = self.p.run(*PY, "scripts/check.py", check=False, SCRIPTED="1")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+@unittest.skipUnless(DOCKER, "needs docker, for sops and age")
+class EncryptedSecrets(TestCase):
+    """A server environment's secrets, encrypted with SOPS and age, with a throwaway key."""
+
+    def setUp(self):
+        super().setUp()
+        self.key = self.p.dir / "age" / "keys.txt"
+        self.env = {"SOPS_AGE_KEY_FILE": str(self.key)}
+        self.p.script("secrets.py", "key", **self.env)
+
+    def test_init_encrypts_and_nothing_decrypted_stays(self):
+        self.assertTrue(self.key.exists())
+        self.assertIn("age1", self.p.read("site/secrets/.sops.yaml"))
+        self.p.script("secrets.py", "init", "prod", **self.env)
+        enc = self.p.read("site/secrets/prod.enc.env")
+        self.assertIn("POSTGRES_PASSWORD=ENC[AES256_GCM", enc)
+        self.assertIn("AUTH_SIGNING_KEY_CURRENT=ENC[", enc)
+        self.assertFalse((self.p.dir / "site/secrets/prod.env").exists())
+        self.p.script("render.py", "prod", **self.env)
+        self.assertFalse((self.p.dir / "generated/prod/secrets.env").exists())
+        self.assertFalse((self.p.dir / "generated/prod/secrets").exists())
+        self.p.script("render.py", "prod", T10_BUNDLE_SECRETS="1", **self.env)
+        auth = self.p.read("generated/prod/secrets/auth-server.env")
+        self.assertRegex(auth, r'AUTH_SIGNING_KEY_CURRENT="-----BEGIN EC PRIVATE KEY-----\\n')
+
+    def test_set_check_and_rotate(self):
+        self.p.script("secrets.py", "init", "prod", **self.env)
+        r = self.p.run(*PY, "scripts/secrets.py", "check", "prod", check=False, **self.env)
+        self.assertIn("LLM_API_KEY is not set", r.stderr)
+        subprocess.run([*PY, "scripts/secrets.py", "set", "prod", "LLM_API_KEY"], input="sk-test\n", text=True, check=True,
+                       cwd=self.p.dir, capture_output=True, env={**os.environ, **self.env})
+        values = "import sys, json; sys.path.insert(0, 'scripts'); import lib; print(json.dumps(lib.secret_values('prod')))"
+        before = json.loads(self.p.run(*PY, "-c", values, **self.env).stdout)
+        self.p.script("secrets.py", "rotate", "WORKBENCH_SESSION_KEY", "prod", **self.env)
+        after = json.loads(self.p.run(*PY, "-c", values, **self.env).stdout)
+        self.assertEqual([k for k in after if after[k] != before.get(k)], ["WORKBENCH_SESSION_KEY"])
+        self.assertEqual(after["LLM_API_KEY"], "sk-test")
+        r = self.p.run(*PY, "scripts/secrets.py", "check", "prod", check=False, **self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_compose_runs_with_them_then_drops_them(self):
+        self.p.script("secrets.py", "init", "prod", **self.env)
+        svc = self.p.compose_config("prod", **self.env)["services"]["auth-server"]
+        self.assertTrue(svc["environment"]["AUTH_SIGNING_KEY_CURRENT"].startswith("-----BEGIN EC PRIVATE KEY-----\n"))
+        self.assertTrue(svc["environment"]["DATABASE_URL"].startswith("postgres://t10:"))
+        self.assertFalse((self.p.dir / "generated/prod/secrets").exists())
+        self.assertFalse((self.p.dir / "generated/prod/secrets.env").exists())
+
+    def test_signing_key_rotation(self):
+        self.p.script("secrets.py", "init", "prod", **self.env)
+        values = "import sys, json; sys.path.insert(0, 'scripts'); import lib; print(json.dumps(lib.secret_values('prod')))"
+        first = json.loads(self.p.run(*PY, "-c", values, **self.env).stdout)
+        self.p.script("secrets.py", "rotate", "AUTH_SIGNING_KEY_CURRENT", "prod", **self.env)
+        middle = json.loads(self.p.run(*PY, "-c", values, **self.env).stdout)
+        self.assertEqual(middle["AUTH_SIGNING_KEY_CURRENT"], first["AUTH_SIGNING_KEY_CURRENT"])
+        self.assertTrue(middle["AUTH_SIGNING_KEY_NEXT"].startswith("-----BEGIN EC PRIVATE KEY-----"))
+        self.p.script("secrets.py", "rotate", "AUTH_SIGNING_KEY_CURRENT", "prod", "--finish", **self.env)
+        last = json.loads(self.p.run(*PY, "-c", values, **self.env).stdout)
+        self.assertEqual(last["AUTH_SIGNING_KEY_CURRENT"], middle["AUTH_SIGNING_KEY_NEXT"])
+        self.assertEqual(last["AUTH_SIGNING_KEY_NEXT"], "")
+
+    def test_plain_server_secrets_fail_check(self):
+        (self.p.dir / "site/secrets/.sops.yaml").unlink()
+        self.p.script("secrets.py", "init", "dev", **self.env)
+        r = self.p.run(*PY, "scripts/secrets.py", "check", "dev", check=False, **self.env)
+        self.assertIn("is plain text", r.stderr)
+
+    def test_another_recipient(self):
+        self.p.script("secrets.py", "init", "prod", **self.env)
+        other = subprocess.run([str(self.p.dir / "scripts/sops.sh"), "age-keygen"], capture_output=True, text=True, check=True).stdout
+        pub = next(line.split(":", 1)[1].strip() for line in other.splitlines() if line.startswith("# public key:"))
+        self.p.script("secrets.py", "recipient", pub, **self.env)
+        self.assertIn(pub, self.p.read("site/secrets/.sops.yaml"))
+        self.assertIn(pub, self.p.read("site/secrets/prod.enc.env"))
+        other_key = self.p.dir / "age" / "other.txt"
+        other_key.write_text(other)
+        r = self.p.run(*PY, "-c", "import sys; sys.path.insert(0, 'scripts'); import lib; print(lib.secret_values('prod')['POSTGRES_PASSWORD'][:4])",
+                       SOPS_AGE_KEY_FILE=str(other_key))
+        self.assertEqual(len(r.stdout.strip()), 4)
 
 
 class TemplateUpdate(unittest.TestCase):

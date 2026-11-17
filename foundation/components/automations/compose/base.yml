@@ -16,9 +16,7 @@ services:
     restart: unless-stopped
     env_file: ./env/t10-automations.env
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/automations?sslmode=disable
       <<: *auth
-      AUTH_CLIENT_SECRET: ${T10_AUTOMATIONS_SECRET}
       AGENT_URL: http://ai-gateway-agent:18090/agent
       AGENT_CONTROL_URL: http://t10-agent-control:8085
     healthcheck:
@@ -26,10 +24,6 @@ services:
       <<: *health
     depends_on:
       t10-agent-control: {condition: service_healthy}
-
-  seed:
-    environment:
-      T10_AUTOMATIONS_SECRET: ${T10_AUTOMATIONS_SECRET}
 
   t10-collab:
     environment:

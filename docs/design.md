@@ -206,15 +206,14 @@ Because `environment:` would override every env file, it keeps only wiring: serv
 
 ## Secrets
 
-Each part's `secrets.json` (`foundation/`, each module, and `site/` if it adds any), with each module's standard secrets before its own, is the inventory: each secret's name, its consumers, how to generate it (`hex32`, `b64key`, or `provided` by an outside party) and how to rotate it. They never hold values.
+How to work with them is in [`guide.md`](guide.md#secrets); why they're built this way:
 
-The values live in `site/secrets/<env>.env`, the only place any command reads them from, and are copied into the bundle as `secrets.env`. They were once kept in `generated/<env>/` for server environments, which made the output folder the only copy of prod's secrets; now `generated/` is always derived.
+- **Each service sees only its own.** A secret's `env` in the inventory names the services that get it and the variable, so `render.py` writes one `secrets/<service>.env` per service, and Compose files hold only wiring. The same per-service files become one Kubernetes `Secret` per service later.
+- **SOPS with age, in the repo** (decided Nov 15): one encrypted file per server environment, committed, which works offline, needs no service, and feeds Compose now and Kubernetes later. Whoever deploys needs an age key, and there's no automatic rotation. External Secrets would replace it once there's a cloud secret manager, keeping the same names.
+- **Decrypted only in memory.** Commands read a server's values through `sops decrypt` into memory (`lib.secrets_text`); its bundle holds them only while Compose runs here or `make deploy` copies it, so the host is the only place they're on disk.
+- **Rotation is described per secret** (`rotation`), so `make rotate APPLY=1` does the safe kinds (a new value, auth-server's two-phase account secrets, the signing key's `NEXT`) and prints the steps for the rest, such as a provider's key or the Postgres password.
 
-- `make secrets-init` (`ENV=` for a server) writes `site/secrets/<env>.env`, filling in random values for any that are missing and keeping existing ones. It's per checkout and not committed, since it holds `LLM_API_KEY`. `provided` values are left empty to paste in.
-- `make check` fails when a required secret is missing, when the file holds a name not in the inventory, and, for `prod`, when a value is a known dev default or equals its local value.
-- `make rotate NAME=…` prints the inventory's rotation steps for one secret. It doesn't run them.
-
-Production secrets (SOPS with age) are planned; see `plan.md`.
+`make check` fails when a required secret is missing, a name isn't in the inventory, a server's values are in plain text, or, for `prod`, a value is a known dev default or equals its local value.
 
 ## Feeding back to the foundation
 

@@ -47,7 +47,7 @@ What a module shares with every other module (how it plugs into the foundation, 
 │                          (a module in its own repo: a checkout from `make clone`, not committed)
 ├── site/                  this project's choices, applied last                         project
 │   ├── config/            settings.env (PROJECT_NAME, FOUNDATION), <env>/settings.env, any <service>.env
-│   ├── secrets/           the secret values, per environment, and the only place they're read from
+│   ├── secrets/           the secret values: local.env, and each server's <env>.enc.env, encrypted
 │   ├── versions.env       optional: a pin this project needs to differ from the template's
 │   └── docs/              the project's own plan and open questions
 └── generated/<env>/       the bundle that runs, rewritten on every command                not committed
@@ -93,8 +93,7 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `make release MODULE=<id>` | Build a module from `src/`, push it to `IMAGE_REGISTRY` and pin it, for servers |
 | `make config-show SVC=<service>` | A service's settings, and which file each came from |
 | `make deploy ENV=<env>` | Copy the environment's bundle to its host over SSH and start it there, after `make check` |
-| `make secrets-init` | Add missing secrets to `site/secrets/<env>.env`, keeping existing ones (`ENV=` for a server) |
-| `make rotate NAME=…` | How to rotate one secret |
+| `make secrets-key`, `secrets-init`, `secrets-set`, `secrets-edit`, `rotate` | An environment's secrets: [below](#secrets) |
 | `make template-update` | Merge the template's latest release (`REF=` for another), keeping the project's paths, and print its changelog |
 | `make pin` (`WRITE=1`) | What each foundation image's `latest` is, and optionally pin it in the `versions.env` that wins for it |
 | `make sync-module MODULE=<id>` | For a module in its own repo: copy its pack out of its pinned image into `modules/<id>/pack/` |
@@ -128,17 +127,54 @@ Never edit a Compose file for a setting: they hold only wiring. Never put a secr
 
 ## Secrets
 
-Which secrets exist is the inventory: each part's `secrets.json` (name, consumers, how to make one, how to rotate it, never a value), plus each module's standard ones, made from its `module.env` (`scripts/wiring.py`). A module's own `secrets.json` adds more or replaces a standard one by name.
+### Which exist, and who gets each
 
-The values are the project's, in `site/secrets/`, and nothing reads them from anywhere else:
+The inventory is each part's `secrets.json`, plus each module's standard secrets, made from its `module.env` (`scripts/wiring.py`). An entry never holds a value. It says:
+
+| Field | Means |
+| --- | --- |
+| `name` | The secret, such as `WORKBENCH_SESSION_KEY` |
+| `generate` | How a new value is made: `hex32`, `b64key`, `es256` (a signing key from auth-server's `authctl gen-key`), or `provided` (pasted in) |
+| `env` | Which services get it, under which variable: `{"workbench": {"AUTH_CLIENT_SECRET": "${WORKBENCH_CLIENT_SECRET}"}}`. A value can build on it, such as `postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth`, and `${NAME:-default}` gives a fallback |
+| `rotate`, `rotation` | How to rotate it, and what `make rotate APPLY=1` does: `replace`, `account:<name>`, `signing-key`, or nothing when it's done by hand |
+| `envs`, `optional`, `consumers` | Which environments need it, whether it may be empty, and who uses it, for people |
+
+Entries with the same name are merged, later parts winning, with `env` merged service by service. An entry with no `generate` is a *use*: it gives one more service a secret declared elsewhere. So a module or the project adds a secret, or gives an existing one to one of its services, in its own `secrets.json`, never in a Compose file. `make check` fails on a secret written into a template Compose file, and warns about one in a project's.
+
+`scripts/render.py` writes each service's secrets into the bundle as `secrets/<service>.env` (mode 600), which the service reads after its settings. A service sees only its own.
+
+### Where the values are
 
 | File | Holds | In git |
 | --- | --- | --- |
 | `site/secrets/local.env` | This checkout's values, made by every local command, plus `LLM_API_KEY` by hand | No |
-| `site/secrets/<env>.env` | A server environment's values in plain text, from `make secrets-init ENV=<env>`, then filled in. Until SOPS is built ([`plan.md`](plan.md), C2); then only while a command runs | No |
-| `site/secrets/<env>.enc.env` | The same, encrypted with SOPS and age (planned) | Yes |
+| `site/secrets/.sops.yaml` | Which age keys can decrypt the server environments' secrets: public keys only | Yes |
+| `site/secrets/<env>.enc.env` | A server environment's values, encrypted with SOPS and age. The names stay readable, so a diff shows a secret added or removed | Yes |
+| `site/secrets/<env>.env` | A server environment's values in plain text, only before the project has `.sops.yaml`; `make check` fails while it's there | No |
 
-Every command copies the environment's values into the bundle as `generated/<env>/secrets.env` (mode 600), which `make deploy` copies to the host.
+A server environment's values are decrypted in memory when a command needs them, never to a file here. Its bundle holds them only while `scripts/compose.sh` runs Compose on it, and while `make deploy` copies it to the host, which keeps them in its own copy of the bundle.
+
+### Working with them
+
+| Command | Does |
+| --- | --- |
+| `make secrets-key` | Once per machine: makes its age key (`~/.config/sops/age/keys.txt`, or `SOPS_AGE_KEY_FILE`) and adds its public key to `site/secrets/.sops.yaml`. Back the key up: without it, or the break-glass key, the encrypted values are lost |
+| `make secrets-key BREAKGLASS=1` | Prints a new key once, to keep offline, and adds it as a recipient |
+| `make secrets-key RECIPIENT=age1…` | Lets a teammate's key decrypt every environment. To remove one, delete it from `.sops.yaml` and run `make secrets-key` |
+| `make secrets-init ENV=<env>` | Adds any missing generated values, encrypted; encrypts a plain `<env>.env` if there is one |
+| `make secrets-set ENV=<env> NAME=…` | Sets one value, typed in and not shown, such as `LLM_API_KEY` |
+| `make secrets-edit ENV=<env>` | Opens every value in an editor, and encrypts them again on save |
+| `make rotate NAME=…` | Prints how to rotate one |
+| `make rotate NAME=… ENV=<env> APPLY=1` | Rotates it there, as its `rotation` says; a two-phase one then needs `FINISH=1` after the deploy |
+
+`sops` and `age` run from this machine if installed, or else from a small image (`scripts/tools/`), so nothing needs installing. Rotation, by kind:
+
+| `rotation` | `APPLY=1` | Then |
+| --- | --- | --- |
+| `replace` | A new value | `make up` or `make deploy`, which recreates what reads it (auth-server too, for a web client's secret) |
+| `account:<name>` | `authctl service-rotate`: auth-server accepts the old secret and the new one, which is saved | Deploy, check it works, then `FINISH=1` runs `authctl service-finish` to retire the old one |
+| `signing-key` | A new key in `AUTH_SIGNING_KEY_NEXT`, which auth-server publishes | Deploy, wait one token lifetime, then `FINISH=1` makes it current and clears `NEXT`; deploy again |
+| none | Nothing: the steps are printed | By hand, such as a provider's key or the Postgres password |
 
 ## Compose files and the bundle
 
@@ -146,7 +182,7 @@ Compose never runs from the checkout. Every command first renders `generated/<en
 
 - each part's `compose/`, `config/`, `scripted/`, `pack/` and `init-db.sh`, copied, and each module's pack (from `src/<id>/module/` for a module in the project);
 - each module's standard wiring, `modules/<id>/standard/<name>.yml` for `base`, `local` and `build`, written from its `module.env`;
-- `env/<service>.env`, each service's merged settings; `versions.env`, every part's merged; `secrets.env`;
+- `env/<service>.env`, each service's merged settings; `secrets/<service>.env`, its secrets, and `secrets.yml`, which has each service read them; `versions.env`, every part's merged;
 - what's merged from the packs: `clients.yaml`, `permissions/`, `agent-routes.json`, `modules.env`, and each agent's grant;
 - on a server, the `Caddyfile`: one site per public address;
 - `compose.sh`, which runs Compose on all of it, as project `<PROJECT_NAME>-<env>`.

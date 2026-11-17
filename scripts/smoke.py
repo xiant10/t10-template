@@ -35,7 +35,7 @@ import lib  # noqa: E402
 ENV = os.environ.get("ENV", "local")
 SCRIPTED = bool(os.environ.get("SCRIPTED"))
 cfg = lib.settings(ENV)
-secrets = lib.read_env(lib.secrets_file(ENV))
+secrets = lib.secret_values(ENV)
 LOCAL = lib.shape(ENV) == "local"
 port = lambda name: f"http://127.0.0.1:{cfg[name]}"
 public = lambda name: cfg[name].rstrip("/")

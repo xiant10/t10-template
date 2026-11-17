@@ -4,6 +4,20 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.2.0 (Nov 16, 2026)
+
+Server secrets: encrypted, per service, and rotatable.
+
+- **Each service gets only its own secrets.** A secret's `env` in `secrets.json` says which service gets it under which variable; `render.py` writes `secrets/<service>.env`. No foundation Compose file holds a secret any more, and `make check` fails on one there (warns in a project's).
+- **Encrypted server secrets** with SOPS and age: `make secrets-key`, `secrets-init`, `secrets-set`, `secrets-edit`. `site/secrets/<env>.enc.env` is committed; values are decrypted in memory only.
+- **Rotation**: `make rotate NAME=… ENV=… APPLY=1` for `replace`, `account:<name>` and `signing-key` secrets. The signing key is generated (`es256`).
+- auth-server is recreated whenever `clients.yaml` changes (`T10_CLIENTS_SHA`).
+
+**In a project:**
+
+1. Run `make secrets-key` once, commit `site/secrets/.sops.yaml`, then `make secrets-init ENV=<env>` for each server environment to encrypt its `<env>.env`, and commit `<env>.enc.env`. Run `make secrets-key BREAKGLASS=1` and keep the printed key offline.
+2. A Compose file of yours that writes `${SECRET}` still works; `make check` warns. Move it to an `env` entry in that part's `secrets.json`.
+
 ## v0.1.0 (Nov 16, 2026)
 
 The first release. What every module shares now comes from the template, so a template update reaches every module.

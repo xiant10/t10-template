@@ -16,7 +16,14 @@ environment, with nothing pointing back into the checkout, so it runs here or on
     env/<service>.env  a service's settings: every part's config/<service>.env, then every
                        part's config/<env>/<service>.env, later lines winning
     versions.env       every part's versions.env merged: foundation's pins, each module's, site's overrides
-    secrets.env        the environment's secrets, mode 600, copied from site/secrets/<env>.env
+    secrets/<service>.env
+                       a service's secrets, mode 600: each `env` in the parts' secrets.json, filled in
+                       from the environment's values; secrets.yml has each service read its own
+    secrets.env        all of the environment's secrets, mode 600, only for a project's Compose files
+                       that still write ${SECRET}
+                       For a server environment, these two are written only with T10_BUNDLE_SECRETS=1,
+                       which scripts/compose.sh and scripts/deploy.sh set while they need them; the
+                       values are decrypted from site/secrets/<env>.enc.env in memory (lib.secrets_text)
     clients.yaml       auth-server's clients: foundation/clients.json, each component's clients.json
                        and each pack's clients.fragment.json, with ${VAR}, "${sha256:VAR}" and
                        "${bool:VAR}" filled in
@@ -52,6 +59,32 @@ import lib  # noqa: E402
 import wiring  # noqa: E402
 
 WHOLE = re.compile(r"^\$\{(sha256|bool):([A-Z0-9_]+)\}$")
+REFERENCE = re.compile(r"\$\{([A-Z0-9_]+)(?::-((?:[^{}]|\$\{[^{}]*\})*))?\}")
+PLAIN = re.compile(r"[A-Za-z0-9_./:@+=,?&%-]*")
+
+
+def resolve(template, values):
+    """A secret's `env` value with ${NAME}, ${NAME:-default} and ${A:-${B}} filled in, as Compose
+    would; a name with no value and no default is empty."""
+    return REFERENCE.sub(lambda m: values.get(m.group(1)) or (resolve(m.group(2), values) if m.group(2) is not None else ""), template)
+
+
+def secret_files(values, raw):
+    """{service: file text}: each service's secrets, as env lines. A value that is one secret as it
+    is keeps the quoting it has in site/secrets/ (a PEM key's \\n escapes); any other is quoted
+    when it needs to be."""
+    out = {}
+    for service, variables in sorted(lib.secret_env().items()):
+        lines = [f"# {service}'s secrets, written by scripts/render.py from the parts' secrets.json. Don't edit."]
+        for var, template in variables.items():
+            whole = REFERENCE.fullmatch(template)
+            if whole and raw.get(whole.group(1)) and values.get(whole.group(1)):
+                lines.append(f"{var}={raw[whole.group(1)]}")
+                continue
+            value = resolve(template, values)
+            lines.append(f"{var}={value}" if PLAIN.fullmatch(value) else f"{var}='{value}'")
+        out[service] = "\n".join(lines) + "\n"
+    return out
 INLINE = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
@@ -183,7 +216,7 @@ def compose_script(env_name, standard):
     """generated/<env>/compose.sh. The bundle has the repo's layout, so paths are the same."""
     rel = lambda p: str(p.relative_to(lib.ROOT))
     env_files = ["versions.env", *map(rel, lib.settings_files(env_name)), "secrets.env", "modules.env"]
-    files = " ".join(f"-f {f}" for f in compose_files(["base", *lib.layers(env_name)], standard))
+    files = " ".join(f"-f {f}" for f in compose_files(["base", *lib.layers(env_name)], standard) + ["secrets.yml"])
     lines = ["#!/bin/sh", f"# Written by scripts/render.py for ENV={env_name}. Don't edit.",
              "# docker compose on this bundle: each part's Compose files and settings, the pinned versions,",
              "# the secrets, and what modules add. Runs here, or on the host `make deploy` copies it to.",
@@ -247,8 +280,13 @@ def main(env_name):
     settings = lib.settings(env_name)
     if settings.get("TARGET", "compose") != "compose":
         raise SystemExit(f"{env_name}: TARGET={settings['TARGET']} isn't built yet, only compose (docs/plan.md)")
-    secrets = lib.secrets_file(env_name)
-    values = {**settings, **lib.read_env(secrets)}
+    values = {**settings, **lib.secret_values(env_name)}
+    raw = lib.secret_values(env_name, raw=True)
+    # A server's secrets go in its bundle only while a command needs them (scripts/compose.sh,
+    # scripts/deploy.sh); otherwise its bundle holds none, so nothing decrypted stays here.
+    with_secrets = lib.shape(env_name) == "local" or os.environ.get("T10_BUNDLE_SECRETS")
+    if os.environ.get("SCRIPTED") and not values.get("LLM_API_KEY"):
+        values["LLM_API_KEY"] = raw["LLM_API_KEY"] = "scripted"
     out = lib.GENERATED / env_name
     files = {}
 
@@ -264,8 +302,16 @@ def main(env_name):
     for service in lib.services_configured(env_name):
         files[f"env/{service}.env"] = (service_env(service, env_name), 0o644)
     files["versions.env"] = (merged_env(lib.versions_files(), lib.versions()), 0o644)
-    if secrets.exists():
-        files["secrets.env"] = (secrets.read_bytes(), 0o600)
+    if with_secrets and lib.has_secrets(env_name):
+        files["secrets.env"] = (lib.secrets_text(env_name).encode(), 0o600)
+    # Each service's own secrets, and a Compose file that has it read them after its settings.
+    overlay = {}
+    for service, text in secret_files(values, raw).items():
+        if with_secrets:
+            files[f"secrets/{service}.env"] = (text.encode(), 0o600)
+        overlay[service] = {"env_file": [{"path": f"./secrets/{service}.env"}]}
+    files["secrets.yml"] = (("# Written by scripts/render.py: each service reads its own secrets. Don't edit.\n"
+                             + wiring.to_yaml({"services": overlay}) + "\n").encode(), 0o644)
 
     # Each module's standard wiring, worked out from its module.env (scripts/wiring.py).
     standard = {}
@@ -338,6 +384,9 @@ def main(env_name):
     files["agent-routes.json"] = ((json.dumps(routes, indent=2) + "\n").encode(), 0o644)
     lines = ["# Written by scripts/render.py. Don't edit."]
     lines += [f"MODULE_{k}={','.join(dict.fromkeys(v))}" for k, v in lists.items()]
+    # auth-server reads clients.yaml only at start, and Compose doesn't see a mounted file change,
+    # so its hash is a variable on auth-server: a new client secret or module recreates it.
+    lines.append("T10_CLIENTS_SHA=" + hashlib.sha256(files["clients.yaml"][0]).hexdigest()[:16])
     files["modules.env"] = (("\n".join(lines) + "\n").encode(), 0o644)
     if lib.shape(env_name) != "local":
         files["Caddyfile"] = (caddyfile(settings), 0o644)

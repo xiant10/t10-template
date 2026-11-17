@@ -11,13 +11,15 @@ set -eu
 cd "$(dirname "$0")/.."
 env=${ENV:-local}
 
-# The only place an environment's secrets are read from. render.py copies them into the bundle.
+# An environment's secrets are site/secrets/<env>.env, or for a server <env>.enc.env, decrypted
+# in memory (scripts/lib.py). render.py writes them into the bundle.
 secrets=site/secrets/$env.env
-if [ "$env" = local ]; then
+shape=$(python3 -I -B scripts/lib.py shape "$env")
+if [ "$shape" = local ]; then
 	# Every local run fills in generated values that are missing, such as a new module's.
-	python3 -I -B scripts/secrets.py init local | grep -v ': 0 added' >&2 || true
-elif [ ! -f "$secrets" ]; then
-	echo "$secrets is missing: make secrets-init ENV=$env, then fill it in" >&2; exit 1
+	python3 -I -B scripts/secrets.py init "$env" | grep -v ': 0 added' >&2 || true
+elif [ ! -f "$secrets" ] && [ ! -f "site/secrets/$env.enc.env" ]; then
+	echo "$env has no secrets: make secrets-init ENV=$env, then make secrets-set or secrets-edit for the empty ones" >&2; exit 1
 fi
 
 allow=""
@@ -29,9 +31,17 @@ fi
 # Missing secrets stop only commands that start containers; `config`, `ps` and `logs` still work.
 if ! python3 -I -B scripts/secrets.py check "$env" $allow >&2; then
 	case "${1:-}" in
-	up | create | run | start | restart) echo "fix $secrets first" >&2; exit 1 ;;
+	up | create | run | start | restart) echo "fix $env's secrets first" >&2; exit 1 ;;
 	esac
 fi
 
+if [ "$shape" = local ]; then
+	python3 -I -B scripts/render.py "$env"
+	exec "generated/$env/compose.sh" "$@"
+fi
+# A server environment's bundle holds its secrets only while Compose runs here.
+T10_BUNDLE_SECRETS=1 python3 -I -B scripts/render.py "$env"
+status=0
+"generated/$env/compose.sh" "$@" || status=$?
 python3 -I -B scripts/render.py "$env"
-exec "generated/$env/compose.sh" "$@"
+exit "$status"

@@ -13,10 +13,13 @@
 # Paths are relative to the deployment bundle, generated/<env>/, which has the repo's layout:
 # scripts/render.py copies this file there, and its compose.sh passes --project-directory.
 #
-# Wiring stays here, in `environment:`: addresses on the Compose network, and values built
-# from secrets. Any other setting goes in a part's config/<service>.env (every environment)
-# or config/<env>/<service>.env (one), because `environment:` would override it.
-# scripts/render.py merges those into env/<service>.env, which each service reads.
+# Wiring stays here, in `environment:`: addresses on the Compose network. Any other setting
+# goes in a part's config/<service>.env (every environment) or config/<env>/<service>.env
+# (one), because `environment:` would override it. scripts/render.py merges those into
+# env/<service>.env, which each service reads.
+# No secret is here. Each part's secrets.json says which service gets each one, under which
+# variable (`env`), and scripts/render.py writes them as secrets/<service>.env, which each
+# service reads after its settings: a service gets only its own.
 #
 # Modules plug in through the MODULE_* variables and generated/<env>/ files that
 # scripts/render.py writes from each pack. Each is appended to the foundation's own list,
@@ -41,7 +44,6 @@ x-harness: &harness
   JWT_ISSUER: ${AUTH_PUBLIC_URL}
   AUTH_URL: http://auth-server:8081
   LLM_BASE_URL: http://ai-gateway-llm:18080/v1
-  LLM_API_KEY: ${GATEWAY_API_KEY}
   AGENT_CONTROL_URL: http://t10-agent-control:8085
   TOOL_GATEWAY_URL: http://ai-gateway-tools:18095
   COLLAB_MCP_URL: http://ai-gateway-tools:18095/mcp/collab
@@ -53,7 +55,6 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: t10
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: auth
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -U t10 -d auth"]
@@ -70,17 +71,9 @@ services:
     image: ${T10_AUTH_SERVER}
     entrypoint: ["auth-setup"]
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable
-      AUTHCTL_PASSWORD: ${AUTH_ADMIN_PASSWORD}
       AUTH_SETUP_ADMIN: ${AUTH_SETUP_ADMIN:-admin@acme.example}
       AUTH_SETUP_TENANT_ID: ${AUTH_SETUP_TENANT_ID:-ten_acme}
       AUTH_SETUP_TENANT_NAME: ${AUTH_SETUP_TENANT_NAME:-Acme}
-      AGENT_TI_SECRET: ${AGENT_TI_SECRET}
-      T10_COLLAB_SECRET: ${T10_COLLAB_SECRET}
-      T10_KNOWLEDGE_SECRET: ${T10_KNOWLEDGE_SECRET}
-      AI_GATEWAY_SECRET: ${AI_GATEWAY_SECRET}
-      AI_GATEWAY_TOOLS_SECRET: ${AI_GATEWAY_TOOLS_SECRET}
-      AI_GATEWAY_LLM_SECRET: ${AI_GATEWAY_LLM_SECRET}
     depends_on:
       postgres: {condition: service_healthy}
 
@@ -92,17 +85,15 @@ services:
       AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL}
       # Modules with their own web app, for the landing page.
       AUTH_APP_URLS: ${MODULE_APP_URLS}
+      # Changes with clients.yaml, which it reads only at start, so `make up` recreates it then.
+      T10_CLIENTS_SHA: ${T10_CLIENTS_SHA}
       AUTH_WORKBENCH_URL: ${WORKBENCH_PUBLIC_URL}
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/auth?sslmode=disable
-      AUTH_TOTP_KEY: ${AUTH_TOTP_KEY}
       # LiveKit, for calls: browsers connect to this, so the published address. The livekit
       # component sets these; auth-server requires them even without it, so with it off
-      # they're placeholders that nothing reaches (upstream U15).
+      # they're placeholders that nothing reaches (upstream U15). LIVEKIT_API_SECRET's is in
+      # ../secrets.json.
       LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://livekit.invalid}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-livekit-off}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-livekit-off}
-      AUTH_SIGNING_KEY_CURRENT: ${AUTH_SIGNING_KEY_CURRENT:-}
-      AUTH_SIGNING_KEY_NEXT: ${AUTH_SIGNING_KEY_NEXT:-}
     volumes:
       - ./clients.yaml:/etc/t10-auth/clients.yaml:ro
       - ./permissions:/etc/t10-auth/permissions:ro
@@ -117,12 +108,9 @@ services:
     restart: unless-stopped
     env_file: ./env/t10-agent-control.env
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/agent_control?sslmode=disable
       <<: *auth
       WORKBENCH_URL: ${WORKBENCH_PUBLIC_URL}
-      MODEL_KEY: ${MODEL_KEY}
       MODEL_GATEWAY_URL: http://ai-gateway-llm:18080
-      MODEL_GATEWAY_KEY: ${GATEWAY_API_KEY}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8085/readyz"]
       <<: *health
@@ -144,10 +132,7 @@ services:
           agentctl import /routes.json --reason "${PROJECT_NAME} routes"
         fi
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/agent_control?sslmode=disable
-      MODEL_KEY: ${MODEL_KEY}
       MODEL_GATEWAY_URL: http://ai-gateway-llm:18080
-      MODEL_GATEWAY_KEY: ${GATEWAY_API_KEY}
     volumes:
       - ./agent-routes.json:/routes.json:ro
     depends_on:
@@ -160,10 +145,6 @@ services:
     env_file: ./env/ai-gateway-llm.env
     environment:
       <<: *auth
-      OPENAI_API_KEY: ${LLM_API_KEY}
-      GATEWAY_DEFAULT_API_KEY: ${GATEWAY_API_KEY}
-      AI_GATEWAY_LLM_CLIENT_SECRET: ${AI_GATEWAY_LLM_SECRET}
-      AUDIT_CONSOLE_KEY: ${AUDIT_CONSOLE_KEY}
       # Tenants' own model keys, which tenant admins and the console manage.
       AGENT_CONTROL_URL: http://t10-agent-control:8085
     volumes:
@@ -190,8 +171,6 @@ services:
     env_file: ./env/ai-gateway-tools.env
     environment:
       <<: *auth
-      AI_GATEWAY_TOOLS_CLIENT_SECRET: ${AI_GATEWAY_TOOLS_SECRET}
-      AUDIT_CONSOLE_KEY: ${AUDIT_CONSOLE_KEY}
       # name=audience@url. Harnesses call /mcp/<name>.
       TOOL_SERVERS: collab=t10-collab@http://t10-collab:8082/mcp,knowledge=t10-knowledge@http://t10-knowledge:18050/mcp${MODULE_TOOL_SERVERS:+,${MODULE_TOOL_SERVERS}}
       # Offered together at /mcp/modules.
@@ -218,9 +197,7 @@ services:
     restart: unless-stopped
     env_file: ./env/t10-collab.env
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/collab?sslmode=disable
       <<: *auth
-      AUTH_CLIENT_SECRET: ${T10_COLLAB_SECRET}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8082/readyz"]
       <<: *health
@@ -232,9 +209,7 @@ services:
     restart: unless-stopped
     env_file: ./env/t10-knowledge.env
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/knowledge?sslmode=disable
       <<: *auth
-      AUTH_CLIENT_SECRET: ${T10_KNOWLEDGE_SECRET}
       AGENT_CONTROL_URL: http://t10-agent-control:8085
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:18050/readyz"]
@@ -259,7 +234,6 @@ services:
     environment:
       <<: *harness
       AUTH_ISSUER: ${AUTH_PUBLIC_URL}
-      AUTH_CLIENT_SECRET: ${AGENT_TI_SECRET}
       MODULES_MCP_URL: http://ai-gateway-tools:18095/mcp/modules
       GRANT_ACTIONS: agent:use,work:read,work:write,work:send,knowledge:read${MODULE_GRANT_ACTIONS:+,${MODULE_GRANT_ACTIONS}}
       GRANT_AUDIENCES: agent-ti,t10-collab,t10-knowledge,ai-gateway-tools,ai-gateway-llm${MODULE_GRANT_AUDIENCES:+,${MODULE_GRANT_AUDIENCES}}
@@ -281,9 +255,7 @@ services:
     env_file: ./env/ai-gateway-agent.env
     environment:
       <<: *auth
-      AI_GATEWAY_CLIENT_SECRET: ${AI_GATEWAY_SECRET}
       AI_GATEWAY_LLM_URL: http://ai-gateway-llm:18080
-      AI_GATEWAY_LLM_API_KEY: ${GATEWAY_API_KEY}
       # Routes come from the published route document (agent-routes), modules' included.
       AGENT_CONTROL_URL: http://t10-agent-control:8085
     healthcheck:
@@ -298,12 +270,9 @@ services:
     restart: unless-stopped
     env_file: ./env/workbench.env
     environment:
-      DATABASE_URL: postgres://t10:${POSTGRES_PASSWORD}@postgres:5432/workbench?sslmode=disable
       AUTH_PUBLIC_URL: ${AUTH_PUBLIC_URL}
       AUTH_URL: http://auth-server:8081
-      AUTH_CLIENT_SECRET: ${WORKBENCH_CLIENT_SECRET}
       WORKBENCH_PUBLIC_URL: ${WORKBENCH_PUBLIC_URL}
-      WORKBENCH_SESSION_KEY: ${WORKBENCH_SESSION_KEY}
       # Conversations go through ai-gateway-agent, never straight to a harness. It answers
       # agents.list for every agent it routes, so one entry serves the whole picker.
       AGENT_URLS: assistant=http://ai-gateway-agent:18090

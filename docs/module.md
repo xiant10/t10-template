@@ -20,7 +20,7 @@ It runs as it is. Then make it yours:
 | Its agent's instructions | `src/<id>/module/agents/<id>/` | `make reload MODULE=<id>` |
 | Its data | Migrations in its code, run at start, against the database it's given | `make reload`, or `make down-all && make up` for a fresh database |
 | A setting | `modules/<id>/config/<service>.env` | `make up` |
-| A secret beyond the standard ones | `modules/<id>/secrets.json`, in the form of `foundation/secrets.json`, and its service's `environment:` in `modules/<id>/compose/base.yml` | `make up` |
+| A secret beyond the standard ones | `modules/<id>/secrets.json`, in the form of `foundation/secrets.json`, with an `env` naming the service and variable that get it ([`guide.md`](guide.md#secrets)) | `make up` |
 | Its demo data, extra checks | `modules/<id>/hooks/seed-demo.sh`, `hooks/smoke.py` | `make seed-demo`, `make smoke` |
 
 Commit `src/<id>/` and `modules/<id>/` together: one commit is one change to the module. Before calling it done, `make verify` runs everything from empty volumes.

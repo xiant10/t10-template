@@ -126,7 +126,11 @@ For `dev` (the same for `prod`):
 
 1. Publish each module built from `src/`: set `IMAGE_REGISTRY` (such as `ghcr.io/<owner>`) in `site/config/settings.env`, `docker login` to it, commit, then `make release MODULE=<id>` and commit the pin it writes in `modules/<id>/versions.env`. Servers pull that image; they never build.
 2. In `site/config/dev/settings.env`, set `DEPLOY_HOST`, `DEPLOY_DIR`, every public address (`AUTH_PUBLIC_URL`, `WORKBENCH_PUBLIC_URL`, each module's, the components') and `LIVEKIT_NODE_IP` if LiveKit runs. Point each address's DNS at the host.
-3. `make secrets-init ENV=dev`, then fill in the empty values in `site/secrets/dev.env`, such as `LLM_API_KEY`. Until SOPS is built ([`plan.md`](plan.md), C2), that file is plain text and never committed, so keep a safe copy of it.
+3. Secrets, encrypted with SOPS and age ([`guide.md`](guide.md#secrets)):
+   - once per project: `make secrets-key`, which makes this machine's age key and `site/secrets/.sops.yaml`, then `make secrets-key BREAKGLASS=1`, whose printed key you keep offline; back up `~/.config/sops/age/keys.txt` too;
+   - `make secrets-init ENV=dev` makes every generated value, the signing key included, in `site/secrets/dev.enc.env`;
+   - `make secrets-set ENV=dev NAME=LLM_API_KEY` for each value it says to fill in;
+   - commit `site/secrets/.sops.yaml` and `dev.enc.env`. A teammate who deploys runs `make secrets-key` on their machine, and you add them with `make secrets-key RECIPIENT=age1…`.
 4. `make check ENV=dev` fails while any `TODO` is left, or a module's pinned image is older than its code in `src/`.
 5. `make deploy ENV=dev` copies the bundle to the host and starts it behind Caddy, with TLS.
 6. `make smoke ENV=dev` checks the public addresses.

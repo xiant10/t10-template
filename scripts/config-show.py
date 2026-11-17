@@ -30,7 +30,7 @@ def main(service):
     effective = services[service].get("environment") or {}
 
     secret_names = {s["name"] for s in lib.inventory()}
-    secret_values = {v for v in lib.read_env(lib.secrets_file(ENV)).values() if len(v) >= 8}
+    secret_values = {v for v in lib.secret_values(ENV).values() if len(v) >= 8}
     layers = [(str(path.relative_to(lib.ROOT)), lib.read_env(path)) for path in reversed(lib.service_layers(service, ENV))]
 
     width = max((len(k) for k in effective), default=0)
