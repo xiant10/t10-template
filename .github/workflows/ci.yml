@@ -1,5 +1,6 @@
-# The template's checks, and a project's: what a reviewer would otherwise run by hand.
-# It comes from the template, so a project gets it, and its fixes, with `make template-update`.
+# This project's CI: the project's own file, which template updates leave alone. The checks
+# themselves are the template's, in t10-template.yml; add the project's own jobs below them,
+# such as a release or a deploy, with `needs: checks`.
 name: ci
 
 on:
@@ -8,26 +9,5 @@ on:
   pull_request:
 
 jobs:
-  # Lint, the template's own tests and the Go kit's: no stack needed.
-  template:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: make lint
-      - run: make test-template
-
-  # The whole stack from empty volumes with the scripted model: each module's tests, then up,
-  # seed-demo, check and smoke. The template has no module, so it scaffolds one to check.
-  verify:
-    needs: template
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: A module to check, in the template
-        run: ls -d modules/*/ >/dev/null 2>&1 || make new-module ID=ci
-      - run: make doctor
-      - run: make verify SCRIPTED=1
-      - name: Logs, when it failed
-        if: failure()
-        run: platform/scripts/compose.sh ps -a && platform/scripts/compose.sh logs --tail=200
+  checks:
+    uses: ./.github/workflows/t10-template.yml

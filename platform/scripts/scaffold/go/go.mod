@@ -16,5 +16,6 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 )
 
-// The template's kit, platform/kit/go/ in the project: what every module answers.
+// The template's kit, platform/kit/go/ in the project: what every module answers. This path is
+// for builds and editors on this machine; the Dockerfile points it at the `kit` build context.
 replace t10kit => ../../../platform/kit/go

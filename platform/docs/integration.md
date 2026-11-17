@@ -25,7 +25,7 @@ make alone MODULE=crm             # or keep it running, to work against it: http
 make alone-down MODULE=crm
 ```
 
-`make alone` runs the module's service by itself as its own Compose project, with its own throwaway Postgres and database, built from `src/<id>/`, on its local port plus 10000, so it runs beside the full stack. It gets its own settings from `modules/<id>/config/`, and `T10_STANDALONE=1` with no `AUTH_ISSUER`, which switches the kit to a stand-in for auth-server:
+`make alone` runs the module's service by itself as its own Compose project, with its own throwaway Postgres and database, built from `modules/<id>/src/`, on its local port plus 10000, so it runs beside the full stack. It gets its own settings from `modules/<id>/config/`, and `T10_STANDALONE=1` with no `AUTH_ISSUER`, which switches the kit to a stand-in for auth-server:
 
 | Token | Is |
 | --- | --- |
@@ -53,17 +53,17 @@ What only the full stack can show: its accounts are made in auth-server, its gra
 
 ## Gate 4: server
 
-`make release MODULE=<id>` builds the image from `src/<id>/` as committed, pushes it and pins it. `make check ENV=<env>` fails while the pin is behind `src/`, a `TODO` is left, or a secret is missing or in plain text. Then `make deploy ENV=<env>` and `make smoke ENV=<env>`. The steps are in [`new-project.md`](new-project.md#8-deploy-to-a-server).
+`make release MODULE=<id>` builds the image from `modules/<id>/src/` as committed, pushes it and pins it. `make check ENV=<env>` fails while the pin is behind it, a `TODO` is left, or a secret is missing or in plain text. Then `make deploy ENV=<env>` and `make smoke ENV=<env>`. The steps are in [`new-project.md`](new-project.md#8-deploy-to-a-server).
 
 ## A module in its own repo
 
-The same gates, with gate 1 in its own repo's CI. Gate 2 runs from a project: `make clone` checks it out into `src/`, and `make contract MODULE=<id>` builds and checks it from there, so a module can be proven against the contract before its image is published. A module that doesn't use the Go kit must answer `T10_STANDALONE=1` the same way (the tokens above, refused beside `AUTH_ISSUER`) for gate 2 to run. Gate 3 then pins its published image and copies its pack (`make sync-module`).
+The same gates, with gate 1 in its own repo's CI. Gate 2 runs from a project: `make clone` checks it out into `modules/<id>/src/`, and `make contract MODULE=<id>` builds and checks it from there, so a module can be proven against the contract before its image is published. A module that doesn't use the Go kit must answer `T10_STANDALONE=1` the same way (the tokens above, refused beside `AUTH_ISSUER`) for gate 2 to run. Gate 3 then pins its published image and copies its pack (`make sync-module`).
 
 ## When a gate fails
 
 | Gate | Look at |
 | --- | --- |
-| 1 | The test output; the code in `src/<id>/` |
+| 1 | The test output; the code in `modules/<id>/src/` |
 | 2 | The failing line names the file or route. Its logs: `docker compose -p <PROJECT_NAME>-alone-<id> logs` while `make alone` runs it |
 | 3 | `make logs SVC=<service>`; `make check` for grants and secrets; `make config-show SVC=<service>` for a setting |
 | 4 | `make check ENV=<env>`; the host's logs through its bundle's `compose.sh logs` |

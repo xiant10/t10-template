@@ -4,7 +4,7 @@ The reference for a project made from this template: who owns what, where everyt
 
 ## Who owns what
 
-One rule: **the root and `platform/` belong to the template; `README.md`, `modules/` and `site/` belong to the project; `generated/` is never committed.**
+One rule: **the root and `platform/` belong to the template; `README.md`, `modules/`, `site/` and `.github/workflows/ci.yml` belong to the project; `generated/` is never committed.**
 
 A project changes only its own paths (`lib.OWNED` in `platform/scripts/lib.py`, which `make template-update` and `make check` both read). Everything else comes from the template and is changed there, so every project gets the change and `make template-update` merges cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. What it adds goes in `site/` too: clients, catalogs, agent routes and list entries ([What a part adds](#what-a-part-adds)), steps around its commands ([Hooks](#hooks)), and commands of its own ([below](#a-projects-own-commands)). `make check` warns about any template file a project edited.
 
@@ -17,7 +17,10 @@ What a module shares with every other module (how it plugs into the foundation, 
 ├── README.md                    the project: what it is, how to reach it                     project
 ├── LICENSE                      Apache 2.0, for the template's files                         template
 ├── Makefile                     the commands (`make help`)                                    template
-├── .github/workflows/           CI: lint, the template's tests, `make verify`                 template
+├── .gitignore                   what's never committed; a project's own rules go in site/.gitignore   template
+├── .github/workflows/
+│   ├── t10-template.yml         the checks: lint, the template's tests, `make verify`         template
+│   └── ci.yml                   the project's CI, which calls them, plus its own jobs          project
 ├── platform/                    the template engine, foundation and SDK                      template
 │   ├── CHANGELOG.md             the template's releases, and what a project does for each
 │   ├── scripts/                 what the commands run; lib.py finds the parts
@@ -111,30 +114,30 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | Command | Does |
 | --- | --- |
 | `make doctor` | Whether this machine can run the project: Docker, Compose 2.24+, Python, free ports, and for `k8s-local`, kubectl reaching its cluster |
-| `make up` / `down` / `down-all` | Start (building each module from `src/`), stop, or stop and delete data |
+| `make up` / `down` / `down-all` | Start (building each module from `modules/<id>/src/`), stop, or stop and delete data |
 | `make seed-demo` | The foundation's sample accounts, then each part's `hooks/seed-demo` (local only) |
 | `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route and a turn with each module agent, then each part's `hooks/smoke` |
-| `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants reached every place, Compose renders, the bundle mounts nothing from outside itself, and on a server, no `TODO` is left and each module from `src/` is released as committed |
-| `make test` | Each module's own tests from `src/`, in Docker (`MODULE=<id>` for one) |
+| `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants reached every place, Compose renders, the bundle mounts nothing from outside itself, and on a server, no `TODO` is left and each module from `modules/<id>/src/` is released as committed |
+| `make test` | Each module's own tests from `modules/<id>/src/`, in Docker (`MODULE=<id>` for one) |
 | `make contract MODULE=<id>` | One module alone, with its own Postgres and no foundation: its pack and the contract its service must keep ([`integration.md`](integration.md)); `make alone` keeps it running |
-| `make reload MODULE=<id>` | After changing a module in `src/`: rebuild and restart it, and what reads its pack if that changed |
+| `make reload MODULE=<id>` | After changing a module in `modules/<id>/src/`: rebuild and restart it, and what reads its pack if that changed |
 | `make verify` | Every gate from empty volumes: `test`, each module's `contract`, then `down-all`, `up`, `seed-demo`, `check`, `smoke`. Run it before calling a change done |
-| `make new-module ID=<id>` | A new module: its code in `src/<id>/` and its deployment in `modules/<id>/` ([`module.md`](module.md)); `SCAFFOLD=` picks the language of its code, `go` by default |
-| `make release MODULE=<id>` | Build a module from `src/`, push it to `IMAGE_REGISTRY` and pin it, for servers |
+| `make new-module ID=<id>` | A new module: its deployment in `modules/<id>/` and its code in `modules/<id>/src/` ([`module.md`](module.md)); `SCAFFOLD=` picks the language of its code, `go` by default |
+| `make release MODULE=<id>` | Build a module from `modules/<id>/src/`, push it to `IMAGE_REGISTRY` and pin it, for servers |
 | `make config-show SVC=<service>` | A service's settings, and which file each came from |
 | `make deploy ENV=<env>` | Copy the environment's bundle to its host over SSH and start it there, after `make check` |
 | `make secrets-key`, `secrets-init`, `secrets-set`, `secrets-edit`, `rotate` | An environment's secrets: [below](#secrets) |
 | `make template-update` | Merge the template's latest release (`REF=` for another), keeping the project's paths, and print its changelog |
 | `make pin` (`WRITE=1`) | What each foundation image's `latest` is, and optionally pin it in the `versions.env` that wins for it |
 | `make sync-module MODULE=<id>` | For a module in its own repo: copy its pack out of its pinned image into `modules/<id>/pack/` |
-| `make clone` / `make status` | Clone each module that has its own repo into `src/`; show this repo's and their changes |
+| `make clone` / `make status` | Clone each module that has its own repo into `modules/<id>/src/`; show this repo's and their changes |
 | `make routes-publish` | Publish the route document again after an agent changes (`make up` does it) |
 | `make lint` / `make test-template` | The template's own checks: ruff and shellcheck, and `tests/` and `kit/go/`'s tests |
 
 Two switches, both local only:
 
 - **`SCRIPTED=1`** uses a scripted model, so nothing needs `LLM_API_KEY`. `make` turns it on by itself while `site/secrets/local.env` has no `LLM_API_KEY`, and says so on `make up`; `SCRIPTED=` (empty) turns it off.
-- **`DEV=1`** builds each module that has its own repo from its checkout in `src/`, instead of pulling its image. A module whose code is in the project is always built from `src/` on local.
+- **`DEV=1`** builds each module that has its own repo from its checkout in `modules/<id>/src/`, instead of pulling its image. A module whose code is in the project is always built from there on local.
 
 On a server, `make smoke` checks only what Caddy publishes.
 
@@ -150,7 +153,7 @@ A part's `hooks/<event>.sh` or `hooks/<event>.py` runs at that point in a comman
 | `check` | At the end of `make check`'s own checks | Is a failed check |
 | `pre-deploy`, `post-deploy` | Here, in `make deploy`: after `make check` and before the copy; once the host is up | Stops the deploy |
 
-Each runs from the project's root with `ENV`, `T10_PART` (its part, such as `site` or `modules/crm`), `T10_MODULE` (a module's ID, else empty) and `T10_COMPOSE` (`scripts/compose.sh`, to `exec` into a container). A `.sh` hook runs with `sh`, a `.py` one with `python3 -I -B`. A `smoke.py` or `check.py` hook instead runs inside `make smoke` or `make check`, with their helpers: `check(name, ok, detail)`, and for `smoke`, `http`, `compose`, `agent`, `open_session`, `turn`, `tool_calls`, `token`, `cfg`, `SCRIPTED`, and for a module's, `module` (its `module.env`) and `url`; for `check`, `ENV`, `bundle` and `run`. `seed-demo` hooks also get `AUTH_URL` and `T10_PG_USER`.
+Each runs from the project's root with `ENV`, `T10_PART` (its part, such as `site` or `modules/crm`), `T10_MODULE` (a module's ID, else empty) and `T10_COMPOSE` (`platform/scripts/compose.sh`, to `exec` into a container). A `.sh` hook runs with `sh`, a `.py` one with `python3 -I -B`. A `smoke.py` or `check.py` hook instead runs inside `make smoke` or `make check`, with their helpers: `check(name, ok, detail)`, and for `smoke`, `http`, `compose`, `agent`, `open_session`, `turn`, `tool_calls`, `token`, `cfg`, `SCRIPTED`, and for a module's, `module` (its `module.env`) and `url`; for `check`, `ENV`, `bundle` and `run`. `seed-demo` hooks also get `AUTH_URL` and `T10_PG_USER`.
 
 ## A project's own commands
 
@@ -158,7 +161,7 @@ The Makefile includes `site/project.mk` and each `modules/<id>/module.mk` if the
 
 ```make
 import-contacts: ## Load a contacts export into the crm module
-	@scripts/compose.sh exec -T t10-crm /usr/local/bin/t10-crm import /data/contacts.csv
+	@platform/scripts/compose.sh exec -T t10-crm /usr/local/bin/t10-crm import /data/contacts.csv
 ```
 
 ## Changing a setting
@@ -167,7 +170,7 @@ Every service reads one file, `generated/<env>/env/<service>.env`, merged from e
 
 | For | File |
 | --- | --- |
-| A template default | `foundation/config/` (in the template) |
+| A template default | `platform/foundation/config/` (in the template) |
 | A module's own service | `modules/<id>/config/<service>.env` |
 | This project, one service, every environment | `site/config/<service>.env` |
 | This project, one service, one environment | `site/config/<env>/<service>.env` |
@@ -233,7 +236,7 @@ A server environment's values are decrypted in memory when a command needs them,
 
 Compose never runs from the checkout. Every command first renders `generated/<env>/` (`scripts/render.py`), a bundle with the repo's layout, so it runs the same here or on the host `make deploy` copies it to:
 
-- each part's `compose/`, `config/`, `scripted/`, `pack/` and `init-db.sh`, copied, and each module's pack (from `src/<id>/module/` for a module in the project);
+- each part's `compose/`, `config/`, `scripted/`, `pack/` and `init-db.sh`, copied, and each module's pack (from `modules/<id>/src/module/` for a module in the project);
 - each module's standard wiring, `modules/<id>/standard/<name>.yml` for `base`, `local` and `build`, written from its `module.env`;
 - `env/<service>.env`, each service's merged settings; `secrets/<service>.env`, its secrets, and `secrets.yml`, which has each service read them; `versions.env`, every part's merged;
 - what's merged from the packs: `clients.yaml`, `permissions/`, `agent-routes.json`, `modules.env`, and each agent's grant;
@@ -257,7 +260,7 @@ A server environment (`dev`, `prod`, or one built on them) runs on its host, `DE
 | `make backup-pull ENV=<env>` | Copies the newest dump here, to `backups/<env>/` (never committed), after checking it's complete, encrypted for the keys in `site/secrets/.sops.yaml` |
 | `make restore ENV=<env> FILE=… CONFIRM=<env>` | Stops everything but Postgres, replaces every database with the dump, and starts it again (on a server, with `make deploy`) |
 
-Every service on a server rotates its logs (`LOG_MAX_SIZE`, `LOG_MAX_FILES`) and has a memory limit (`MEM_LIMIT`, or `MEM_LIMIT_LARGE` for Postgres and the agents), set in `foundation/config/server/settings.env`; override them in `site/config/<env>/settings.env`, or for one service in `site/compose/server.yml`. The model gateway's audit and the backups are volumes, so they outlive their containers.
+Every service on a server rotates its logs (`LOG_MAX_SIZE`, `LOG_MAX_FILES`) and has a memory limit (`MEM_LIMIT`, or `MEM_LIMIT_LARGE` for Postgres and the agents), set in `platform/foundation/config/server/settings.env`; override them in `site/config/<env>/settings.env`, or for one service in `site/compose/server.yml`. The model gateway's audit and the backups are volumes, so they outlive their containers.
 
 A backup is only as useful as the secrets it was taken with: `MODEL_KEY` and any module's data key decrypt what's in it, and they're in git, in `site/secrets/<env>.enc.env`. Pull backups off the host regularly; a host's own copies go with the host.
 
@@ -292,7 +295,7 @@ A module gets its own port for it, `PORT` + 18000, in `modules/<id>/config/k8s-l
 ## Keeping up with the template
 
 ```sh
-make template-update      # the latest release; README.md, modules/, site/ and src/ stay as they are
+make template-update      # the latest release; README.md, modules/, site/ and ci.yml stay as they are
 make verify
 ```
 
@@ -300,7 +303,7 @@ It prints what `CHANGELOG.md` says about each release it brought in; do what its
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push to `main` and every pull request: `make lint` and `make test-template`, then `make verify` with the scripted model. In the template, which has no module, it scaffolds one first. A project gets the workflow with the template, and runs it on its own modules.
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request. It's the project's, and calls the template's checks, `.github/workflows/t10-template.yml`, a reusable workflow: `make lint` and `make test-template`, then `make verify` with the scripted model. In the template, which has no module, it scaffolds one first. A project adds its own jobs, such as a release or a deploy, in `ci.yml` with `needs: checks`, and gets the checks' fixes with each template update.
 
 ## Feeding back to the foundation
 

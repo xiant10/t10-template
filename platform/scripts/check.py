@@ -2,7 +2,7 @@
 """`make check`: what can be checked without a running stack.
 
 1. Each module's folder is named for it, and its pack/ matches the pack in its pinned image
-   (skipped if that image has none yet). A module built from src/ has no copy to compare.
+   (skipped if that image has none yet). A module built from modules/<id>/src/ has no copy to compare.
 2. The environment's secrets are complete, and no prod value is a dev default.
 3. No secret's name is set in any part's config/, and no Compose file writes one: each
    service gets its own from the parts' secrets.json (a project's own file only warns).
@@ -11,7 +11,7 @@
    grant, and every runtime clients.yaml gives its tools to. render.py puts them there; this
    catches a pack it can't.
 5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
-   module built from src/ needs `make release` first.
+   module built from modules/<id>/src/ needs `make release` first.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
    `make deploy` can copy it to a host as it is. On a server, every service rotates its logs and
    has a memory limit. With TARGET=k8s, its Kubernetes objects build with kustomize, and no
@@ -53,8 +53,11 @@ for folder in sorted(lib.MODULES.iterdir()) if lib.MODULES.exists() else []:
         how = f"{lib.pack_of(folder).relative_to(lib.ROOT)}/module.env is missing" if lib.in_project(folder) \
             else f"make sync-module MODULE={folder.name}"
         print(f"skip modules/{folder.name}: no pack yet, so not part of the stack ({how})")
-for folder, _, m in lib.modules():
+for folder, pack, m in lib.modules():
     check(f"modules/{folder.name} is named for its MODULE_ID", folder.name == m.get("MODULE_ID"), m.get("MODULE_ID", "not set"))
+    # Its <id>-db runs one init-db.sh, the folder's before the pack's, so a second is never run.
+    if (folder / "init-db.sh").exists() and (pack / "init-db.sh").exists():
+        print(f"warn modules/{folder.name}/init-db.sh replaces its pack's, which never runs: keep one (platform/docs/module.md#its-pack-or-its-folder)")
     if lib.in_project(folder):
         continue
     r = run("platform/scripts/sync-module.sh", "--check", MODULE=folder.name)
@@ -124,8 +127,8 @@ if lib.shape(ENV) != "local":
              for k, v in lib.read_env(f).items() if v == "TODO"]
     check(f"no TODO left in {ENV}'s settings (set them in site/config/{ENV}/)", not todo, "; ".join(todo))
     unpinned = [k for k, v in lib.versions().items() if v == "TODO"]
-    check(f"every image {ENV} runs is pinned (make release MODULE=<id> for one built from src/)", not unpinned, ", ".join(unpinned))
-    # A module built from src/ runs its released image there, but its pack comes from src/, so
+    check(f"every image {ENV} runs is pinned (make release MODULE=<id> for one built from modules/<id>/src/)", not unpinned, ", ".join(unpinned))
+    # A module built from modules/<id>/src/ runs its released image there, but its pack comes from there, so
     # both must be the same commit.
     for folder, _, m in lib.modules():
         if not lib.in_project(folder):

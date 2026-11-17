@@ -34,7 +34,7 @@ A module is proven alone before it meets the foundation: `make test` (its code),
 
 A module's own folders hold only what's particular to it. The rest is the template's, so a fix there reaches every module with `make template-update`:
 
-- **Its wiring** (`scripts/wiring.py`). On every command, `scripts/render.py` writes from its `module.env`, into the bundle: a one-shot `<id>-db` that makes its database and login (on every start, so a module joins a running stack); a one-shot `<id>-seed` that adds its accounts to auth-server; its agents, copied into agent-ti, with their runtimes' secrets; its service, with the standard settings below, a read-only filesystem and a healthcheck on `/readyz`, and any more services it lists; and `ai-gateway-tools` and `workbench` waiting for it. On local, its port on `127.0.0.1`, and for code in the project, its build from `src/<id>/`.
+- **Its wiring** (`scripts/wiring.py`). On every command, `scripts/render.py` writes from its `module.env`, into the bundle: a one-shot `<id>-db` that makes its database and login (on every start, so a module joins a running stack); a one-shot `<id>-seed` that adds its accounts to auth-server; its agents, copied into agent-ti, with their runtimes' secrets; its service, with the standard settings below, a read-only filesystem and a healthcheck on `/readyz`, and any more services it lists; and `ai-gateway-tools` and `workbench` waiting for it. On local, its port on `127.0.0.1`, and for code in the project, its build from `modules/<id>/src/`.
 - **Its standard secrets**: `<ID>_DB_PASSWORD`, each account's `<ACCOUNT>_SECRET` (such as `T10_CRM_SECRET` and `AGENT_TI_CRM_SECRET`), `<ID>_WEB_CLIENT_SECRET` and `<ID>_SESSION_KEY`.
 - **Its place in the foundation**: its grants on the harnesses, its tool server on `ai-gateway-tools`, its workbench entry, its app on auth-server's landing page, its agents' routes, its catalog and its OAuth clients, all from its pack.
 
@@ -77,7 +77,7 @@ Code in the project suits a module built for this project: one commit changes it
 
 ## Its image and pack
 
-The service's image ships a **pack** at `/module`, so its deployment always matches the service's version. For code in the project the pack is `src/<id>/module/`, which the Dockerfile copies to `/module`.
+The service's image ships a **pack** at `/module`, so its deployment always matches the service's version. For code in the project the pack is `modules/<id>/src/module/`, which the Dockerfile copies to `/module`.
 
 | Path | Holds | Used by |
 | --- | --- | --- |
@@ -118,31 +118,40 @@ What a project expects of every module's service, which `make smoke` checks:
 
 The standard wiring gives it these settings: `AUTH_ISSUER`, `AUTH_URL`, `AUTH_CLIENT_SECRET` (its account's), `AGENT_URL`, with `web` `AUTH_WEB_CLIENT_SECRET`, `<ID>_PUBLIC_URL` and `<ID>_SESSION_KEY`, and with `database` `DATABASE_URL`; its own `config/<service>.env` adds `LISTEN_ADDR` and anything else.
 
-In Go, `t10kit/module` answers all of the routes: a module fills in a `module.Module` (its ID, label, access and tools) and registers it on its mux, beside its own routes. For `web`, it also serves `/auth/login`, `/auth/callback` and `/auth/logout`, and `m.Person` checks either a Bearer token or the encrypted session cookie. `module.Fake` stands in for auth-server in its tests (`Bearer person`, `Bearer person:<perms>`, `Bearer agent`, `Bearer agent:<perms>`). The kit's own tests cover what every module answers, so a module's tests cover only its tools and API. A module in another language answers the same routes itself; the kit is the reference. `make new-module SCAFFOLD=<lang>` starts one from `scripts/scaffold/<lang>/`, of which `go` is the only one yet: another is a folder there with the same tokens (`__id__`, `__ID__`, `__Id__`, `__service__`, `__port__`), a `module/` pack, and a Dockerfile with a `test` stage that `make test` builds.
+In Go, `t10kit/module` answers all of the routes: a module fills in a `module.Module` (its ID, label, access and tools) and registers it on its mux, beside its own routes. For `web`, it also serves `/auth/login`, `/auth/callback` and `/auth/logout`, and `m.Person` checks either a Bearer token or the encrypted session cookie. `module.Fake` stands in for auth-server in its tests (`Bearer person`, `Bearer person:<perms>`, `Bearer agent`, `Bearer agent:<perms>`). The kit's own tests cover what every module answers, so a module's tests cover only its tools and API. A module in another language answers the same routes itself; the kit is the reference. `make new-module SCAFFOLD=<lang>` starts one from `platform/scripts/scaffold/<lang>/`, of which `go` is the only one yet: another is a folder there with the same tokens (`__id__`, `__ID__`, `__Id__`, `__service__`, `__port__`), a `module/` pack, and a Dockerfile with a `test` stage that `make test` builds.
 
 ## Its folder: `modules/<id>/`
 
 | Path | Holds |
 | --- | --- |
-| `source.env` | `SRC`, its folder in `src/`; `REPO` only when it has a repo of its own |
+| `source.env` | `SRC=src`, its code's folder, `modules/<id>/src/`; `REPO` only when it has a repo of its own |
 | `versions.env` | `T10_<ID>`, its image on servers, pinned to `sha-<commit>@<digest>`. For code in the project, `TODO` until `make release`; local runs don't use it |
 | `config/<service>.env` | Its service's settings |
 | `config/local/settings.env` | Its address and port on this machine, `<ID>_PUBLIC_URL` and `<ID>_PORT` |
 | `config/k8s-local/settings.env` | Its address and port on this machine's Kubernetes |
 | `config/server/settings.env` | `<ID>_PUBLIC_URL=TODO`, which each server environment sets in `site/config/<env>/` |
 | `compose/<name>.yml` | Optional: changes to its standard wiring for that name (`base`, `local`, `server`, `build`, `scripted`), such as a setting it needs on auth-server or its own secret on its service |
-| `secrets.json`, `init-db.sh` | Optional: secrets beyond the standard ones; database setup after its database and login exist (may also live in the pack) |
-| `hooks/<event>.sh` or `.py` | Optional: such as `seed-demo.sh`, its demo data, after the foundation's, and `smoke.py`, its own checks, after the shared ones ([`guide.md`](guide.md#hooks) lists the events and what each is given; may also live in the pack) |
+| `secrets.json`, `init-db.sh` | Optional: secrets beyond the standard ones; database setup after its database and login exist (or in its pack: [below](#its-pack-or-its-folder)) |
+| `hooks/<event>.sh` or `.py` | Optional: such as `seed-demo.sh`, its demo data, after the foundation's, and `smoke.py`, its own checks, after the shared ones ([`guide.md`](guide.md#hooks) lists the events and what each is given; or in its pack: [below](#its-pack-or-its-folder)) |
 | `clients.json`, `agent-routes.json`, `permissions/`, `part.env` | Optional: additions or changes to the foundation's inputs, after what its pack adds ([`guide.md`](guide.md#what-a-part-adds)) |
 | `module.mk` | Optional: make targets of its own |
 | `pack/` | Own repo only: the pack, copied by `make sync-module`. Never edited here. A module without `pack/module.env` isn't part of the stack yet |
 | `README.md`, `docs/` | What it is, and what to know before deploying it |
 
+## Its pack or its folder
+
+`secrets.json`, `init-db.sh`, `hooks/` and the foundation additions can go in either place. The rule: **the pack holds what the module needs wherever it runs; its folder holds what this project changes about it.**
+
+- In the pack (`modules/<id>/src/module/`, or the image's `/module`): what travels with its code and version, such as a secret its service reads, the tables its migrations expect, its demo data and its own smoke checks. A project that pulls its image gets them with no copying.
+- In its folder (`modules/<id>/`): this project's choices about it, such as a secret given to another service, extra setup for this project's data, or a redirect URI for its domain.
+
+Both are read, the pack's first: `secrets.json` entries and additions merge, the folder's winning; both folders' hooks run. `init-db.sh` is the exception: `<id>-db` runs one, so a folder's replaces the pack's, and `make check` warns when both exist. For a module whose code is in the project, put everything in the pack unless it's truly about this project only: then a move to a repo of its own takes nothing extra.
+
 Names follow from the ID, so nothing outside its folders needs to know them: its settings and secrets start with `<ID>_` (`CRM_PUBLIC_URL`, `CRM_DB_PASSWORD`), its image is `T10_<ID>`, an account's secret is the account's name in capitals with `_SECRET`.
 
 ## On a server
 
-Set `IMAGE_REGISTRY` (such as `ghcr.io/<owner>`) in `site/config/settings.env`, commit, and run `make release MODULE=<id>`: it builds the image from `src/<id>/` as committed, pushes it, and pins it in `modules/<id>/versions.env`. `make check ENV=<env>` fails while the pin is `TODO`, or when `src/<id>/` has changed since the pinned release, since a server would run old code with a newer pack. Each server environment sets the module's address in `site/config/<env>/settings.env`, and `make secrets-init ENV=<env>` adds its secrets.
+Set `IMAGE_REGISTRY` (such as `ghcr.io/<owner>`) in `site/config/settings.env`, commit, and run `make release MODULE=<id>`: it builds the image from `modules/<id>/src/` as committed, pushes it, and pins it in `modules/<id>/versions.env`. `make check ENV=<env>` fails while the pin is `TODO`, or when `modules/<id>/src/` has changed since the pinned release, since a server would run old code with a newer pack. Each server environment sets the module's address in `site/config/<env>/settings.env`, and `make secrets-init ENV=<env>` adds its secrets.
 
 ## A module in its own repo
 
@@ -153,10 +162,10 @@ make sync-module MODULE=crm
 make up && make check && make smoke
 ```
 
-To work on its code here, `make clone`, then `DEV=1 make up` builds it from `src/`. Its pack still comes from `modules/<id>/pack/`, so after changing the catalog, agent or clients, build its image and copy the pack from it: `IMAGE=t10-crm:dev make sync-module MODULE=crm`. A change in both places is a commit in the module's repo, then one in the project that pins the new image and its pack.
+To work on its code here, `make clone`, then `DEV=1 make up` builds it from `modules/<id>/src/`. Its pack still comes from `modules/<id>/pack/`, so after changing the catalog, agent or clients, build its image and copy the pack from it: `IMAGE=t10-crm:dev make sync-module MODULE=crm`. A change in both places is a commit in the module's repo, then one in the project that pins the new image and its pack.
 
 ## Removing one
 
-Delete `modules/<id>/` and `src/<id>/`, and its values from each `site/secrets/<env>.env`: `make check` refuses a secret that's no longer in any inventory, so a misspelled name can't hide.
+Delete `modules/<id>/`, and its values from each `site/secrets/<env>.env`: `make check` refuses a secret that's no longer in any inventory, so a misspelled name can't hide.
 
 t10-agent-control keeps routing a removed module's agent pool, and refuses a route document without it until it's retired, which `agentctl` can't do yet (upstream U17). `make up` warns when that happens. On local, `make down-all && make up` starts afresh; on a server, keep the module's agent until the foundation can retire its pool.

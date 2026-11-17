@@ -1,6 +1,6 @@
 #!/bin/sh
 # Merges the template's latest into this project: everything the template owns comes from it,
-# and what the project owns (lib.OWNED: README.md, modules/, site/, src/) stays the project's, so
+# and what the project owns (lib.OWNED: README.md, modules/, site/, .github/workflows/ci.yml) stays the project's, so
 # those never conflict. The template is the git remote `template`, as `git clone -o template` names it.
 #
 #   scripts/template-update.sh            # merges the template's latest release, v<x.y.z>

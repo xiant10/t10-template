@@ -4,6 +4,18 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.8.0 (Nov 17, 2026)
+
+A module's Dockerfile no longer depends on the project's layout, CI is split so a project can add its own jobs, and the docs say where things are since v0.7.0.
+
+- **A module's Dockerfile builds anywhere.** The scaffold's Dockerfile copies the `kit` build context to `/kit` and points `go.mod`'s `replace t10kit` at it during the build, so moving the template's files or the module's folder no longer means editing every module's Dockerfile. `go.mod` keeps its relative `replace` for builds and editors on this machine.
+- **CI the project owns.** The checks are now a reusable workflow, `.github/workflows/t10-template.yml`, which the template updates. `.github/workflows/ci.yml` is now the project's (`lib.OWNED`): it calls the checks, and a project adds its own jobs there, such as a release or a deploy, with `needs: checks`.
+- **Pack or folder.** [`docs/module.md`](docs/module.md#its-pack-or-its-folder) says which of a module's `secrets.json`, `init-db.sh` and `hooks/` go in its pack and which in `modules/<id>/`. `make check` warns when a module has `init-db.sh` in both, since only the folder's runs.
+- **Docs.** Every path from before v0.7.0 (`src/<id>/`, `../../kit/go`, `scripts/compose.sh` in the `project.mk` example) is now its `platform/` or `modules/<id>/src/` path, and four broken links are fixed, including the one in the README `make new-module` writes. `make test-template` now fails on a broken link or an old path in the docs.
+- `ruff.toml` moved to `platform/ruff.toml`. A project's own ignore rules go in `site/.gitignore` or `modules/<id>/.gitignore`, so the root `.gitignore` stays the template's.
+
+**In a project:** in each `modules/<id>/src/Dockerfile` made before this release, set `WORKDIR /src`, change `COPY --from=kit . /w/platform/kit/go/` to `COPY --from=kit . /kit/`, and start both `RUN` lines that call `go mod download` and `go build` with `go mod edit -replace t10kit=/kit && ` (compare with `platform/scripts/scaffold/go/Dockerfile`). Replace `.github/workflows/ci.yml` with the template's, adding back any job of your own below `checks`: `make template-update` keeps your copy, since it's now the project's. Then `make verify`.
+
 ## v0.7.0 (Nov 17, 2026)
 
 Repository layout under `platform/` and co-located modules under `modules/<id>/`, synthesized OAuth clients and scripted wiring, self-contained module packs, per-agent action scoping, and web sign-in in the Go kit ([`docs/module.md`](docs/module.md)).

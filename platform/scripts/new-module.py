@@ -39,7 +39,7 @@ FILES = {
 
 The {id} module's deployment in this project: {where} How it plugs into the foundation is the
 template's standard wiring, worked out from its pack's `module.env`; this folder holds only
-what's particular to it ([`docs/module.md`](../../docs/module.md)).
+what's particular to it ([`platform/docs/module.md`](../../platform/docs/module.md)).
 
 | Path | Holds |
 | --- | --- |
@@ -54,7 +54,7 @@ T10_{U}=TODO
 {source}""",
     "config/{service}.env": """\
 # {service}'s settings in every environment. Secrets never go here: the standard ones are made for
-# it, and any more go in secrets.json in this folder (docs/module.md).
+# it, and any more go in secrets.json in this folder (platform/docs/module.md).
 LISTEN_ADDR=:{port}
 """,
     "config/local/settings.env": """\
@@ -105,7 +105,7 @@ FIRST_PORT = 18100
 
 
 def scaffold_src(dest, names, scaffold):
-    """src/<id>/ from scripts/scaffold/<scaffold>/, with __id__ and the like in names and files filled in."""
+    """modules/<id>/src/ from platform/scripts/scaffold/<scaffold>/, with __id__ and the like in names and files filled in."""
     tokens = {"__service__": names["service"], "__ID__": names["U"], "__Id__": names["Id"], "__id__": names["id"],
               "__port__": str(names["port"])}
 

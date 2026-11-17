@@ -13,7 +13,7 @@ This template is how a project gets there without forking or patching the founda
 - **Modules agents can use.** Each module's tools are reached through `ai-gateway-tools`, with the permissions its catalog grants its agent, so the foundation's agents and the module's own agent act on the business data safely and on behalf of a signed-in person.
 - **Proven in steps.** A module is tested alone, with a stand-in for auth-server, before it meets the foundation, then with the whole stack, then on a server ([`platform/docs/integration.md`](platform/docs/integration.md)). `make verify` runs the first three gates and CI runs it on every push.
 - **Local to server, one description.** The same files run the whole stack on a laptop with `make up`, and on a server with `make deploy ENV=<env>` (Docker Compose over SSH), with encrypted secrets, backups, log rotation and memory limits. `make up ENV=k8s-local` runs the same stack on this machine's Kubernetes, made from the same files; a server cluster is planned ([`platform/docs/plan.md`](platform/docs/plan.md)).
-- **A template that keeps giving.** A project owns `README.md`, `modules/` and `site/`. Everything else lives in `platform/` (and the root `Makefile`), so `make template-update` brings in its fixes and features without touching the project's work.
+- **A template that keeps giving.** A project owns `README.md`, `modules/`, `site/` and its CI, `.github/workflows/ci.yml`. Everything else lives in `platform/` (and the root `Makefile`), so `make template-update` brings in its fixes and features without touching the project's work.
 
 ```
  t10 foundation (published images)        this template (platform/)      your project
@@ -26,12 +26,13 @@ Who it's for: developers building a project's modules, and the coding agents wor
 
 ## Project structure
 
-A project is split between `platform/` (which the **template** owns and `make template-update` updates), the paths the **project** owns (`lib.OWNED`: `README.md`, `modules/` and `site/`), and the rendered runtime bundle in `generated/` (never committed):
+A project is split between `platform/` (which the **template** owns and `make template-update` updates), the paths the **project** owns (`lib.OWNED`: `README.md`, `modules/`, `site/` and `.github/workflows/ci.yml`), and the rendered runtime bundle in `generated/` (never committed):
 
 ```text
 <project>/
 ├── README.md                        the project: what it is and how to run it                  project
 ├── Makefile                         every command (`make help`); includes site/project.mk      template
+├── .github/workflows/               t10-template.yml: the checks (template); ci.yml: calls them  project
 ├── platform/                        the template engine, foundation and SDK                    template
 │   ├── CHANGELOG.md                 template releases and migration notes
 │   ├── foundation/                  the t10 foundation from published images
@@ -49,7 +50,7 @@ A project is split between `platform/` (which the **template** owns and `make te
 │   ├── tests/                       the template's own test suite (`make test-template`)
 │   └── docs/                        architecture, guides and upstream tracker
 ├── modules/<id>/                    one business module: its code, pack and deployment         project
-│   ├── source.env, versions.env     where its code is (`src/`), and its pinned server image (`T10_<ID>`)
+│   ├── source.env, versions.env     where its code is (`SRC=src`), and its pinned server image (`T10_<ID>`)
 │   ├── config/                      service settings and per-layer ports/URLs (local, k8s-local, server)
 │   ├── src/                         its service's code, tests, Dockerfile and pack (or cloned repo):
 │   │   ├── main.go, server.go, tools.go, server_test.go, Dockerfile

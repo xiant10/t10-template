@@ -11,6 +11,7 @@ gets, so it should show in review. Compose is checked only where Docker is insta
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -182,7 +183,7 @@ class Parts(TestCase):
         self.assertIn("LAYERS must include server", r.stderr)
 
     def test_owned(self):
-        self.assertEqual(self.p.script("lib.py", "owned").stdout.split(), ["README.md", "modules", "site"])
+        self.assertEqual(self.p.script("lib.py", "owned").stdout.split(), ["README.md", "modules", "site", ".github/workflows/ci.yml"])
 
     def test_project_makefile(self):
         self.p.write("site/project.mk", "hello: ## Say hello\n\t@echo hello from the project\n")
@@ -203,6 +204,7 @@ class NewModule(TestCase):
         self.assertIn("PORT=18100", self.p.read("modules/crm/src/module/module.env"))
         self.assertFalse((self.p.dir / "modules/crm/src/module/clients.fragment.json").exists())
         self.assertNotIn("__", self.p.read("modules/crm/src/main.go"))
+        self.assertEqual(broken_links(self.p.dir, ["modules/crm/README.md", "modules/crm/src/README.md"]), [])
 
     def test_next_module_gets_the_next_port(self):
         self.p.new_module("crm")
@@ -581,6 +583,42 @@ class Alone(TestCase):
         r = self.p.run(*PY, "platform/scripts/contract.py", "crm", "http://127.0.0.1:9", check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("FAIL PUBLIC_URL_SETTING is CRM_PUBLIC_URL", r.stdout)
+
+
+def broken_links(root, files):
+    """Each relative Markdown link in files that names no file, as "file: link"."""
+    out = []
+    for f in files:
+        for link in re.findall(r"\]\(([^)\s]+)\)", (root / f).read_text()):
+            target = link.split("#")[0]
+            if target and "://" not in target and "<" not in target and not (root / f).parent.joinpath(target).exists():
+                out.append(f"{f}: {link}")
+    return out
+
+
+class Docs(unittest.TestCase):
+    """The docs say where things are now: no link to a file that isn't there, and no path from
+    before a layout change. The CHANGELOG is history, so it keeps the old paths."""
+
+    STALE = (
+        (re.compile(r"(?<!modules/<id>/)(?<![\w/])src/<id>"), "modules/<id>/src/"),
+        (re.compile(r"\.\./\.\./kit/go"), "../../../platform/kit/go"),
+    )
+
+    def setUp(self):
+        self.files = [f for f in tracked_files() if f.endswith((".md", ".py", ".sh", ".yml", "Dockerfile", "go.mod"))
+                      and f != "platform/CHANGELOG.md" and f != "platform/tests/test_template.py"]
+
+    def test_links_resolve(self):
+        # A scaffold's README is read from modules/<id>/src/, where NewModule checks its links.
+        md = [f for f in self.files if f.endswith(".md") and not f.startswith("platform/scripts/scaffold/")]
+        self.assertEqual(broken_links(ROOT, md), [])
+
+    def test_no_stale_paths(self):
+        found = [f"{f}:{n}: {line.strip()[:120]} (now {now})" for f in self.files
+                 for n, line in enumerate((ROOT / f).read_text().splitlines(), 1)
+                 for pattern, now in self.STALE if pattern.search(line)]
+        self.assertEqual(found, [])
 
 
 class TemplateUpdate(unittest.TestCase):

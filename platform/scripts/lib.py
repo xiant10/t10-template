@@ -37,8 +37,9 @@ SITE = ROOT / "site"
 GENERATED = ROOT / "generated"
 SECRETS = SITE / "secrets"
 # What a project owns: `make template-update` leaves these as the project has them, and `make
-# check` warns about an edit anywhere else. Everything else is the template's.
-OWNED = ("README.md", "modules", "site")
+# check` warns about an edit anywhere else. Everything else is the template's. ci.yml is the
+# project's CI, which calls the template's checks in .github/workflows/t10-template.yml.
+OWNED = ("README.md", "modules", "site", ".github/workflows/ci.yml")
 
 
 def parse_env(text, raw=False):

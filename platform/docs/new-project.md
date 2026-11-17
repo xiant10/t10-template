@@ -2,7 +2,7 @@
 
 Step by step, from an empty folder to a project that runs its own modules locally and deploys to a server. Day-to-day work is in [`guide.md`](guide.md); what a module must provide, and how to work on one, is in [`module.md`](module.md).
 
-A project is this template plus four things of its own: `src/` (each module's code), `modules/` (each module's deployment), `site/` (its name, components, addresses, secrets and overrides) and its `README.md`. You never edit anything else, so template updates merge cleanly.
+A project is this template plus four things of its own: `modules/` (each module's code and deployment), `site/` (its name, components, addresses, secrets and overrides), its `README.md`, and its CI, `.github/workflows/ci.yml`. You never edit anything else, so template updates merge cleanly.
 
 ## 1. Before you start
 
@@ -51,7 +51,7 @@ make check
 make smoke
 ```
 
-`make up` writes random local secrets to `site/secrets/local.env`, which is never committed. Open <http://127.0.0.1:38083> (workbench) and sign in as `admin@acme.example`, with `AUTH_ADMIN_PASSWORD` from that file. All addresses are in the [README](../README.md#run-it).
+`make up` writes random local secrets to `site/secrets/local.env`, which is never committed. Open <http://127.0.0.1:38083> (workbench) and sign in as `admin@acme.example`, with `AUTH_ADMIN_PASSWORD` from that file. All addresses are in the [README](../../README.md#run-it).
 
 The local ports are the template's (38xxx, 37xxx), so two projects made from it clash. Run one at a time (`make down` in the other), or move this one's ports in `site/config/local/settings.env`.
 
@@ -59,7 +59,7 @@ To use a real model, paste an OpenAI-compatible key as `LLM_API_KEY` in `site/se
 
 ## 5. Build and add a module
 
-A module is the business part of the project: a service with its own database, web app, tools and agent. Its code goes in `src/`, in this project's repo, unless several projects share it (then see [`module.md`](module.md#a-module-in-its-own-repo)).
+A module is the business part of the project: a service with its own database, web app, tools and agent. Its code goes in `modules/<id>/src/`, in this project's repo, unless several projects share it (then see [`module.md`](module.md#a-module-in-its-own-repo)).
 
 ```sh
 make new-module ID=crm            # service t10-crm, on the next free port
@@ -79,14 +79,14 @@ The service already does what every module must ([`module.md`](module.md#its-ser
 
 | What | Where |
 | --- | --- |
-| Its agent tools | `src/<id>/tools.go`, replacing the example `<id>_whoami` |
-| Its API and web app | `src/<id>/server.go` and files beside it |
+| Its agent tools | `modules/<id>/src/tools.go`, replacing the example `<id>_whoami` |
+| Its API and web app | `modules/<id>/src/server.go` and files beside it |
 | Its data | Migrations in its code, against the database it's given |
-| Its permissions and roles | `src/<id>/module/permissions/<id>.yaml` |
-| Its agent's instructions | `src/<id>/module/agents/<id>/base.md` |
+| Its permissions and roles | `modules/<id>/src/module/permissions/<id>.yaml` |
+| Its agent's instructions | `modules/<id>/src/module/agents/<id>/base.md` |
 | Its settings, and secrets beyond the standard ones | `modules/<id>/config/` and `modules/<id>/secrets.json` |
 | Its demo data, extra checks | `modules/<id>/hooks/seed-demo.sh`, `hooks/smoke.py` |
-| What it has: web app, tools, agents, database; more agents or a worker | `CAPABILITIES`, `AGENTS`, `SERVICES` in `src/<id>/module/module.env` ([`module.md`](module.md#what-it-has)) |
+| What it has: web app, tools, agents, database; more agents or a worker | `CAPABILITIES`, `AGENTS`, `SERVICES` in `modules/<id>/src/module/module.env` ([`module.md`](module.md#what-it-has)) |
 
 The loop while you work:
 
@@ -96,7 +96,7 @@ make reload MODULE=crm            # rebuild and restart it, and what reads its p
 make smoke
 ```
 
-A tool needing a new action has it in one place, the `agent` block of its catalog; the project gives it to every place that needs it. Commit `src/` and `modules/` together: one commit is one change to the module.
+A tool needing a new action has it in one place, the `agent` block of its catalog; the project gives it to every place that needs it. Commit a module's `src/` and its deployment together: one commit is one change to the module.
 
 ## 6. Change a setting
 
@@ -127,14 +127,14 @@ make verify                 # test, down-all, up, seed-demo, check, smoke
 
 For `dev` (the same for `prod`):
 
-1. Publish each module built from `src/`: set `IMAGE_REGISTRY` (such as `ghcr.io/<owner>`) in `site/config/settings.env`, `docker login` to it, commit, then `make release MODULE=<id>` and commit the pin it writes in `modules/<id>/versions.env`. Servers pull that image; they never build.
+1. Publish each module built from `modules/<id>/src/`: set `IMAGE_REGISTRY` (such as `ghcr.io/<owner>`) in `site/config/settings.env`, `docker login` to it, commit, then `make release MODULE=<id>` and commit the pin it writes in `modules/<id>/versions.env`. Servers pull that image; they never build.
 2. In `site/config/dev/settings.env`, set `DEPLOY_HOST`, `DEPLOY_DIR`, every public address (`AUTH_PUBLIC_URL`, `WORKBENCH_PUBLIC_URL`, each module's, the components') and `LIVEKIT_NODE_IP` if LiveKit runs. Point each address's DNS at the host.
 3. Secrets, encrypted with SOPS and age ([`guide.md`](guide.md#secrets)):
    - once per project: `make secrets-key`, which makes this machine's age key and `site/secrets/.sops.yaml`, then `make secrets-key BREAKGLASS=1`, whose printed key you keep offline; back up `~/.config/sops/age/keys.txt` too;
    - `make secrets-init ENV=dev` makes every generated value, the signing key included, in `site/secrets/dev.enc.env`;
    - `make secrets-set ENV=dev NAME=LLM_API_KEY` for each value it says to fill in;
    - commit `site/secrets/.sops.yaml` and `dev.enc.env`. A teammate who deploys runs `make secrets-key` on their machine, and you add them with `make secrets-key RECIPIENT=age1…`.
-4. `make check ENV=dev` fails while any `TODO` is left, or a module's pinned image is older than its code in `src/`.
+4. `make check ENV=dev` fails while any `TODO` is left, or a module's pinned image is older than its code in `modules/<id>/src/`.
 5. `make deploy ENV=dev` copies the bundle to the host and starts it behind Caddy, with TLS.
 6. `make smoke ENV=dev` checks the public addresses.
 7. Backups run on the host every day. `make backup-pull ENV=dev` copies the newest here, encrypted; do it on a schedule, since the host's own copies go with the host. Restoring one is `make restore ENV=dev FILE=… CONFIRM=dev`. Running a server is in [`guide.md`](guide.md#running-a-server).
@@ -154,7 +154,7 @@ It prints what [`CHANGELOG.md`](../CHANGELOG.md) says about each release it brou
 
 | Path | Committed |
 | --- | --- |
-| `README.md`, `modules/`, `site/`, `src/` | Yes, the project's own |
+| `README.md`, `modules/`, `site/`, `.github/workflows/ci.yml` | Yes, the project's own |
 | Everything else in the repo | Yes, from the template; never edited here |
 | `site/secrets/<env>.env` | Never. Only `<env>.enc.env`, once SOPS is built |
 | `src/<repo>/` cloned by `make clone` | Never: a module's own repo, kept out of git |
@@ -166,5 +166,5 @@ It prints what [`CHANGELOG.md`](../CHANGELOG.md) says about each release it brou
 - [ ] `PROJECT_NAME` and `FOUNDATION` set; `README.md` and `site/docs/plan.md` written
 - [ ] The foundation alone passes `make check` and `make smoke`
 - [ ] Each module: made with `make new-module`, its own tools and permissions, `make verify` passes
-- [ ] Before a server: each module from `src/` released and its pin committed
+- [ ] Before a server: each module from `modules/<id>/src/` released and its pin committed
 - [ ] Each server environment: settings filled in, secrets made and kept safe, `make check ENV=…`, `make deploy ENV=…`, `make smoke ENV=…`

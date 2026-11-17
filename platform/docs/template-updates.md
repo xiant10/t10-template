@@ -11,14 +11,16 @@ A project is a git clone of the template with two remotes:
 | `origin` | The project's own repo | Push all your work here |
 | `template` | `t10-template` | Only ever merge from it, with `make template-update` |
 
-The two never step on each other because each owns its own paths (`lib.OWNED` in `scripts/lib.py`):
+The two never step on each other because each owns its own paths (`lib.OWNED` in `platform/scripts/lib.py`):
 
 | The project's: template updates never touch them | The template's: a project never edits them |
 | --- | --- |
-| `README.md` | `foundation/`, `scripts/`, `kit/`, `docs/` |
-| `modules/<id>/`: each module's deployment | `Makefile`, `CHANGELOG.md`, `LICENSE`, `tests/`, `.github/` |
-| `src/<id>/`: each module's code | Everything else at the root |
-| `site/`: name, components, ports, addresses, secrets, overrides | |
+| `README.md` | `platform/`: the foundation, scripts, kit, docs, tests and `CHANGELOG.md` |
+| `modules/<id>/`: each module's deployment, and its code in `src/` | `Makefile`, `LICENSE`, `.gitignore` |
+| `site/`: name, components, ports, addresses, secrets, overrides | `.github/workflows/t10-template.yml`: the checks |
+| `.github/workflows/ci.yml`: the project's CI, which calls the template's checks | Everything else at the root |
+
+A project's own ignore rules go in `site/.gitignore` or `modules/<id>/.gitignore`, which git reads as it does the root's, so the root `.gitignore` stays the template's.
 
 Updates arrive as a git merge, so the project keeps the shared history. Never fork the template on GitHub or copy its files without git: either loses the history the merges rely on.
 
@@ -62,7 +64,7 @@ git push                  # to origin
 
 1. fetches the template, keeping its tags apart from the project's (under `refs/remotes/template/tags/`);
 2. merges the newest release tag, `v<x.y.z>`; `REF=main make template-update` takes the template's unreleased work instead, and `REF=v0.1.0` a given release;
-3. puts back `README.md`, `modules/`, `site/` and `src/` exactly as the project had them;
+3. puts back `README.md`, `modules/`, `site/` and `.github/workflows/ci.yml` exactly as the project had them;
 4. commits the merge, and prints what [`CHANGELOG.md`](../CHANGELOG.md) added.
 
 Read that output: each release's **In a project** notes say what a project must do, such as slimming a module's folder after the template takes over part of it. Do them, then `make verify`, and commit.
