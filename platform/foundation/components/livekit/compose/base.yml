@@ -36,6 +36,12 @@ services:
       agent-routes: {condition: service_completed_successfully}
       agent-pi: {condition: service_healthy}
 
+  auth-server:
+    environment:
+      # Browsers connect to this, so the published address. LIVEKIT_API_SECRET is in ../secrets.json.
+      LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+
   workbench:
     environment:
       LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL}

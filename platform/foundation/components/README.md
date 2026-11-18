@@ -9,7 +9,7 @@ and `part.env`, which can name components it needs in `REQUIRES` and add to the 
 | Component | Runs | Without it |
 | --- | --- | --- |
 | `assistant` | agent-pi, the general assistant and the picker's default agent | `ti` is the default agent |
-| `livekit` | LiveKit and t10-livekit-agent, the voice worker, which speaks for agent-pi. Needs `assistant` | No calls. auth-server gets placeholder LiveKit values, since it requires them (upstream U15) |
+| `livekit` | LiveKit and t10-livekit-agent, the voice worker, which speaks for agent-pi. Needs `assistant` | No calls: auth-server runs with voice off |
 | `console` | t10-console, the platform console, and its sign-in client | Platform admin only through `authctl` and `agentctl` |
 | `automations` | t10-automations, its workbench page, and collab's link to it | No scheduled or triggered agent work |
 

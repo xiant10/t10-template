@@ -127,10 +127,10 @@ class FoundationOnly(TestCase):
         self.p.script("render.py", "local")
         self.assertIn('AUTH_SIGNING_KEY_CURRENT="-----BEGIN-----\\nabc\\n-----END-----"', self.p.read("generated/local/secrets/auth-server.env"))
 
-    def test_livekit_placeholder_without_the_component(self):
+    def test_no_livekit_without_the_component(self):
         self.p.write("site/config/settings.env", "PROJECT_NAME=test\nFOUNDATION=\n")
         bundle = self.p.render()
-        self.assertIn("LIVEKIT_API_SECRET=livekit-off", (bundle / "secrets/auth-server.env").read_text())
+        self.assertNotIn("LIVEKIT", (bundle / "secrets/auth-server.env").read_text())
         self.assertFalse((bundle / "secrets/t10-livekit-agent.env").exists())
 
     @unittest.skipUnless(DOCKER, "needs docker")
