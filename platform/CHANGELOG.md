@@ -4,6 +4,12 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## Unreleased
+
+- **auth-server `sha-95e9f9b`**, the only foundation image whose `latest` moved since the last pins. It starts without LiveKit, with voice off (upstream U10, U15 done), so without the `livekit` component auth-server no longer gets placeholder LiveKit values: the component sets `LIVEKIT_URL` and `LIVEKIT_API_KEY` beside its secret.
+
+**In a project:** nothing, unless `site/` set `LIVEKIT_*` for auth-server only to get past the placeholders; drop it. Then `make verify`.
+
 ## v0.9.0 (Nov 17, 2026)
 
 What building a real module on the template turned up (kuaidan-sales's `site/docs/template-findings.md`, 1–10): a web app's sign-in works, it opens where Workbench sends it and looks like Workbench, sign-out ends every app, and `make smoke` signs in as a browser does. And a way for every project to report what it finds.

@@ -105,12 +105,7 @@ services:
       # Changes with clients.yaml, which it reads only at start, so `make up` recreates it then.
       T10_CLIENTS_SHA: ${T10_CLIENTS_SHA}
       AUTH_WORKBENCH_URL: ${WORKBENCH_PUBLIC_URL}
-      # LiveKit, for calls: browsers connect to this, so the published address. The livekit
-      # component sets these; auth-server requires them even without it, so with it off
-      # they're placeholders that nothing reaches (upstream U15). LIVEKIT_API_SECRET's is in
-      # ../secrets.json.
-      LIVEKIT_URL: ${LIVEKIT_PUBLIC_URL:-ws://livekit.invalid}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-livekit-off}
+      # LiveKit is the livekit component's to set; without it, auth-server runs with voice off.
     volumes:
       - ./clients.yaml:/etc/t10-auth/clients.yaml:ro
       - ./permissions:/etc/t10-auth/permissions:ro
