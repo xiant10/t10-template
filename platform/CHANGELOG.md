@@ -10,6 +10,12 @@ Releases are git tags on the template; how to make one, and how a project takes 
 
 **In a project:** nothing, unless `site/` set `LIVEKIT_*` for auth-server only to get past the placeholders; drop it. Then `make verify`.
 
+## v0.9.1 (Nov 19, 2026)
+
+- **`make test-template` passes in a project.** Its throwaway copies kept the project's `site/config/`, so a project that moved its ports or dropped a component failed `test_golden` and `test_tools_only` in CI. They start from the template's settings now (from kuaidan-sales, whose CI failed on every push since v0.9.0).
+
+**In a project:** nothing. CI's `checks / template` job passes again.
+
 ## v0.9.0 (Nov 17, 2026)
 
 What building a real module on the template turned up (kuaidan-sales's `site/docs/template-findings.md`, 1–10): a web app's sign-in works, it opens where Workbench sends it and looks like Workbench, sign-out ends every app, and `make smoke` signs in as a browser does. And a way for every project to report what it finds.
