@@ -41,6 +41,13 @@ class Project:
             shutil.copy2(ROOT / f, dest)
         for f in (self.dir / "site" / "secrets").glob("*.env"):
             f.unlink()
+        # The template's own settings, not a project's: a project's ports and components would
+        # change what's rendered.
+        shutil.rmtree(self.dir / "site" / "config")
+        for env in ("local", "dev", "prod"):
+            (self.dir / "site" / "config" / env).mkdir(parents=True)
+            (self.dir / "site" / "config" / env / "settings.env").write_text("")
+        (self.dir / "site" / "config" / "settings.env").write_text("PROJECT_NAME=t10-template\n")
         # A stand-in signing key, which `secrets.py init` keeps, so local tests don't each run
         # auth-server's image to make one.
         (self.dir / "site" / "secrets" / "local.env").write_text('AUTH_SIGNING_KEY_CURRENT="stand-in"\n')
