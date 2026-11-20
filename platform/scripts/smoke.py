@@ -15,7 +15,8 @@ of its own (docs/plan.md).
    page, the app's /auth/callback, then the app's home for the tenant, /t/<tenant>/.
 5. Every agent in the route document answers session.create by name through ai-gateway-agent,
    and each module agent answers a turn. With the scripted model and a module's
-   compose/scripted.yml, that turn's tool call reaches the module through ai-gateway-tools.
+   compose/scripted.yml, that turn's tool call reaches the module through ai-gateway-tools, for
+   an agent whose agent.json has the modules' tools (an mcpServers URL ending /mcp/modules).
 6. Each part's hooks/smoke.py, if it has one, in part order. It runs in here, with check, http,
    compose, agent, open_session, turn, tool_calls, token, cfg and SCRIPTED, and for a module's,
    its module.env as `module` and its address as `url` (both None for any other part). A part's
@@ -83,6 +84,13 @@ def http(url, token=None, data=None, form=None):
 def compose(*args):
     env = dict(os.environ, ENV=ENV)
     return subprocess.run([str(lib.PLATFORM / "scripts" / "compose.sh"), *args], capture_output=True, text=True, env=env)
+
+
+def has_module_tools(folder, a):
+    """Whether an agent's agent.json reaches the modules' tools, ai-gateway-tools' /mcp/modules.
+    An agent another service calls, such as one that only extracts, may have none."""
+    agent = json.loads((lib.pack_of(folder) / "agents" / a["name"] / "agent.json").read_text())
+    return any(s.get("url", "").rstrip("}").endswith("/mcp/modules") for s in agent.get("mcpServers", []))
 
 
 def tool_calls(session, wait=30):
@@ -223,12 +231,12 @@ routes = json.loads((lib.GENERATED / ENV / "agent-routes.json").read_text())
 for name in sorted(routes["agents"]):
     sid = open_session(name)
     check(f"ai-gateway-agent routes {name}", sid.startswith(name + "."), sid)
-for m, a in [(mod, a) for mod, _, _ in MODULES for a in wiring.agents(mod)]:
+for m, folder, a in [(mod, folder, a) for mod, _, folder in MODULES for a in wiring.agents(mod)]:
     # The module's ID in brackets: with several modules, the scripted model calls this one's tool.
     session, messages = turn(a["name"], f"What can you tell me about my access here? [{m['MODULE_ID']}]")
     replies = [x.get("text", "") for x in messages if x.get("role") == "assistant" and x.get("text")]
     check(f"the {a['title']} agent answers a turn", bool(replies), f"{messages}"[-300:] if session else "no session opened")
-    if SCRIPTED and session and wiring.has(m, "tools") and m.get("SCRIPTED_TOOL") != "none":
+    if SCRIPTED and session and wiring.has(m, "tools") and m.get("SCRIPTED_TOOL") != "none" and has_module_tools(folder, a):
         calls = tool_calls(session)
         check(f"its tool call reached {m['SERVICE']} through ai-gateway-tools",
               any(c.get("target", "").startswith(f"server:{m['MODULE_ID']}/") and c.get("outcome") == "ok" for c in calls), f"{calls}"[-300:])
