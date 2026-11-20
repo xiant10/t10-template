@@ -227,10 +227,13 @@ clients:
     rate_limit: 600
     allowed_models: []
 
+# Speech to text, for a module's voice through /v1/audio/realtime (ai-gateway's
+# docs/voice-messages.md). STT_WS_URL is in ai-gateway-llm.env; the key is
+# SPEECH_API_KEY, or LLM_API_KEY without one.
 stt:
   providers:
     dashscope:
-      ws_url: "ws://10.212.15.97:9997/ws"
+      ws_url: "${STT_WS_URL}"
       api_key: "${DASHSCOPE_API_KEY}"
 
 tts:
