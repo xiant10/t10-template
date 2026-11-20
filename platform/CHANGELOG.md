@@ -10,6 +10,12 @@ Releases are git tags on the template; how to make one, and how a project takes 
 
 **In a project:** nothing, unless `site/` set `LIVEKIT_*` for auth-server only to get past the placeholders; drop it. Then `make verify`.
 
+## v0.9.3 (Nov 19, 2026)
+
+- **Speech recognition through ai-gateway-llm works on a project's provider** (kuaidan-sales's finding 11). The gateway's `stt` provider was DashScope at a fixed private address, `ws://10.212.15.97:9997/ws`, with a `DASHSCOPE_API_KEY` no secret gave it, so a module's voice through `/v1/audio/realtime` couldn't work. Its address is now `STT_WS_URL` in `foundation/config/ai-gateway-llm.env`, DashScope's realtime endpoint by default, and its key is a new optional secret, `SPEECH_API_KEY`, or `LLM_API_KEY` without one (the template's model provider is DashScope too).
+
+**In a project:** nothing. One that patched `ws_url` in `platform/foundation/config/ai-gateway-llm/config.yaml` takes the template's file on conflict (`git checkout --theirs` it); a `site/config/ai-gateway-llm.env` that sets `STT_WS_URL` and a `secrets.json` entry giving ai-gateway-llm `DASHSCOPE_API_KEY` can stay, or go if they match the defaults. Set `SPEECH_API_KEY` with `make secrets-set` only when speech uses another key than the models.
+
 ## v0.9.2 (Nov 19, 2026)
 
 - **`make smoke` expects a tool call only from an agent that has the modules' tools**: one whose `agent.json` lists an `mcpServers` URL ending `/mcp/modules`. A module agent another service calls, such as one that only extracts, has none, and with the scripted model failed "its tool call reached … through ai-gateway-tools" (from kuaidan-sales, whose `sales-capture` agent is one).
