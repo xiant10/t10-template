@@ -10,6 +10,12 @@ Releases are git tags on the template; how to make one, and how a project takes 
 
 **In a project:** nothing, unless `site/` set `LIVEKIT_*` for auth-server only to get past the placeholders; drop it. Then `make verify`.
 
+## v0.9.2 (Nov 19, 2026)
+
+- **`make smoke` expects a tool call only from an agent that has the modules' tools**: one whose `agent.json` lists an `mcpServers` URL ending `/mcp/modules`. A module agent another service calls, such as one that only extracts, has none, and with the scripted model failed "its tool call reached … through ai-gateway-tools" (from kuaidan-sales, whose `sales-capture` agent is one).
+
+**In a project:** nothing. With `SCRIPTED=1`, such an agent is still checked to answer a turn.
+
 ## v0.9.1 (Nov 19, 2026)
 
 - **`make test-template` passes in a project.** Its throwaway copies kept the project's `site/config/`, so a project that moved its ports or dropped a component failed `test_golden` and `test_tools_only` in CI. They start from the template's settings now (from kuaidan-sales, whose CI failed on every push since v0.9.0).
