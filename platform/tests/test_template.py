@@ -44,8 +44,10 @@ class Project:
             dest = self.dir / f
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / f, dest)
+        # A project's secrets, and its .sops.yaml, which would encrypt the server environments'.
         for f in (self.dir / "site" / "secrets").glob("*.env"):
             f.unlink()
+        (self.dir / "site" / "secrets" / ".sops.yaml").unlink(missing_ok=True)
         # The template's own settings, not a project's: a project's ports and components would
         # change what's rendered.
         shutil.rmtree(self.dir / "site" / "config")

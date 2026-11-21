@@ -4,6 +4,12 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.10.1 (Nov 21, 2026)
+
+- **`make test-template` passes in a project with encrypted secrets.** Its throwaway copies kept the project's `site/secrets/.sops.yaml`, so they encrypted a server environment's secrets and five tests failed reading `site/secrets/prod.env` (from kuaidan-sales, whose CI failed once it committed `.sops.yaml`).
+
+**In a project:** nothing.
+
 ## v0.10.0 (Nov 20, 2026)
 
 What a review against kuaidan-sales's findings turned up: servers run pinned images again, `make test` runs a module's database tests, and the kit gives a module its own token and its tenants' members.
