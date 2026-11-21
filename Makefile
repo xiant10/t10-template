@@ -14,7 +14,7 @@ ENV ?= local
 ifeq ($(shell python3 -I -B platform/scripts/lib.py shape $(ENV) 2>/dev/null),local)
 SCRIPTED ?= $(if $(shell sed -n 's/^LLM_API_KEY=..*/x/p' site/secrets/$(ENV).env 2>/dev/null),,1)
 endif
-export ENV DEV SCRIPTED MODULE IMAGE CONFIRM SCAFFOLD
+export ENV DEV SCRIPTED MODULE IMAGE CONFIRM SCAFFOLD NO_COMMIT
 COMPOSE := platform/scripts/compose.sh
 PY := python3 -I -B
 # The linters `make lint` runs, in Docker so nothing needs installing.
@@ -79,7 +79,7 @@ smoke: ## Check the running stack end to end
 check: ## Checks that need no running stack
 	@$(PY) platform/scripts/check.py
 
-test: ## Each module's own tests, from modules/<id>/src/, in Docker: make test (MODULE=<id> for one)
+test: ## Each module's own tests, from modules/<id>/src/, in Docker beside a throwaway Postgres (TEST_DATABASE_URL): MODULE=<id> for one
 	@platform/scripts/test.sh
 
 alone: ## Run one module by itself, with its own Postgres and no foundation: MODULE=<id> (alone-down stops it)
@@ -95,13 +95,14 @@ contract: ## Check one module keeps the module contract on its own: its pack, th
 reload: ## After changing a module in modules/<id>/src/: rebuild and restart it, and what reads its pack: MODULE=<id>
 	@platform/scripts/reload.sh
 
-verify: ## Every gate, from empty volumes: test, each module alone (contract), then down-all, up, seed-demo, check, smoke
+verify: ## Every gate, from empty volumes: test, each module alone (contract), then down-all, up, seed-demo (twice), check, smoke
 	@$(MAKE) --no-print-directory test
 	@$(PY) platform/scripts/lib.py built | while read -r id src service; do \
 		$(MAKE) --no-print-directory contract MODULE=$$id || exit 1; done
 	@$(MAKE) --no-print-directory down-all
 	@$(MAKE) --no-print-directory up
 	@$(MAKE) --no-print-directory seed-demo
+	@$(MAKE) --no-print-directory seed-demo >/dev/null
 	@$(MAKE) --no-print-directory check
 	@$(MAKE) --no-print-directory smoke
 
@@ -122,14 +123,14 @@ routes-publish: ## Publish generated/<env>/agent-routes.json to t10-agent-contro
 new-module: ## A new module, its code in modules/<id>/src/: ID=crm (SERVICE=t10-crm PORT=… SCAFFOLD=go optional; REPO=… for its own repo)
 	@$(PY) platform/scripts/new-module.py "$(ID)" "$(SERVICE)" "$(PORT)" $(REPO)
 
-template-update: ## Merge the template's latest (git remote template); README.md, modules/ and site/ stay yours
+template-update: ## Merge the template's latest (git remote template); README.md, modules/ and site/ stay yours; NO_COMMIT=1 stops before committing
 	@platform/scripts/template-update.sh
 
 sync-module: ## For a module in its own repo: copy its pack out of its pinned image (MODULE=<id>, IMAGE=…)
 	@platform/scripts/sync-module.sh
 
-pin: ## Show what each foundation image's latest is; WRITE=1 rewrites the versions.env that pins it
-	@$(PY) platform/scripts/resolve-tags.py $(if $(WRITE),--write)
+pin: ## Show what each foundation image's latest is; ENV=prod WRITE=1 pins a server's images to it
+	@$(PY) platform/scripts/resolve-tags.py --env=$(ENV) $(if $(WRITE),--write)
 
 backup: ## Dump every database now into ENV's backups volume (on its host, for a server)
 	@$(PY) platform/scripts/backup.py now $(ENV)
@@ -158,7 +159,7 @@ lint: ## Lint the template's Python and shell scripts, in Docker
 
 test-template: ## The template's own tests: its scripts (platform/tests/) and its Go kit (platform/kit/go/), no stack needed
 	@$(PY) platform/tests/test_template.py $(if $(V),-v)
-	@docker build -q platform/kit/go >/dev/null && echo "platform/kit/go: vet and tests passed"
+	@docker build -q platform/kit/go >/dev/null && echo "platform/kit/go: gofmt, vet and tests passed"
 
 # A project's own commands, and each module's: the project's files, which template updates leave alone.
 -include site/project.mk $(wildcard modules/*/module.mk)

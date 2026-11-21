@@ -8,7 +8,7 @@ The t10 foundation already does the hard, shared parts: sign-in and tenants (aut
 
 This template is how a project gets there without forking or patching the foundation:
 
-- **The foundation, as images and configuration.** Every foundation service runs from a pinned, published image. A project picks which components run and adjusts each container's settings in `site/`; it never changes foundation code. Upgrading the foundation means changing a version file.
+- **The foundation, as images and configuration.** Every foundation service runs from a published image: its `latest` on a laptop, and on a server the tag and digest the template tested. A project picks which components run and adjusts each container's settings in `site/`; it never changes foundation code. Upgrading a server's foundation means changing a version file.
 - **Custom logic, as modules.** A module is the project's own code: a service with its data, the tools its agents call, its agent and its web app. `make new-module` writes a working one in `modules/<id>/` to build on; the template wires it into the foundation (accounts, permissions, grants, OAuth clients, database, routes, secrets), so a module holds only its own logic.
 - **Modules agents can use.** Each module's tools are reached through `ai-gateway-tools`, with the permissions its catalog grants its agent, so the foundation's agents and the module's own agent act on the business data safely and on behalf of a signed-in person.
 - **Proven in steps.** A module is tested alone, with a stand-in for auth-server, before it meets the foundation, then with the whole stack, then on a server ([`platform/docs/integration.md`](platform/docs/integration.md)). `make verify` runs the first three gates and CI runs it on every push.
@@ -36,9 +36,9 @@ A project is split between `platform/` (which the **template** owns and `make te
 ├── platform/                        the template engine, foundation and SDK                    template
 │   ├── CHANGELOG.md                 template releases and migration notes
 │   ├── foundation/                  the t10 foundation from published images
-│   │   ├── versions.env             pinned foundation and third-party image tags@digests
+│   │   ├── versions.env             foundation images (latest, for local) and third-party tags@digests
 │   │   ├── compose/                 base.yml (core), local.yml, server.yml, scripted.yml
-│   │   ├── config/                  default service settings (<service>.env) and layers
+│   │   ├── config/                  default service settings (<service>.env) and layers; server/versions.env pins
 │   │   ├── components/<name>/       optional foundation pieces (assistant, livekit, console, automations)
 │   │   └── …                        clients.json, agent-routes.json, permissions/, secrets.json, init-db.sh
 │   ├── kit/go/                      Go SDK (`t10kit`) shared by modules: auth, web OAuth, MCP
@@ -104,7 +104,7 @@ You need Docker with Compose 2.24 or later, and Python 3. With no module, it run
 
 ```sh
 make doctor                         # Docker, Compose, Python, free ports
-make up                             # pinned images; local secrets are made in site/secrets/local.env
+make up                             # latest foundation images; local secrets are made in site/secrets/local.env
 make seed-demo                      # sample accounts
 make smoke                          # end-to-end checks
 ```

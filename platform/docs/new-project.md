@@ -107,7 +107,7 @@ Never edit `foundation/` or a Compose file. Put the value in `site/`:
 | One service, every environment | `site/config/<service>.env` |
 | One service, one environment | `site/config/<env>/<service>.env` |
 | Ports, public addresses, deploy host | `site/config/<env>/settings.env` |
-| A different image than the template pins | `site/versions.env`, as a deliberate exception |
+| A different image than the template pins | `site/config/server/versions.env` for servers, `site/config/local/versions.env` for this machine, as a deliberate exception |
 | An OAuth client, catalog or agent route of its own, or a change to the foundation's | `site/clients.json`, `site/permissions/`, `site/agent-routes.json` ([`guide.md`](guide.md#what-a-part-adds)) |
 | A step before or after a command; a command of its own | `site/hooks/<event>.sh` ([`guide.md`](guide.md#hooks)); `site/project.mk` |
 

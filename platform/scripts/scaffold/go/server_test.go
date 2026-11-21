@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"t10kit/module"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // What every module answers is tested in the kit (kit/go/module); these test this module's own.
@@ -54,6 +57,28 @@ func TestEveryToolNeedsAnAction(t *testing.T) {
 		if !strings.HasPrefix(tl.Action, moduleID+":") {
 			t.Errorf("%s: action %q isn't one of this module's", tl.Name, tl.Action)
 		}
+	}
+}
+
+// testDB is a Postgres of its own for a test that needs one: `make test` starts one and sets
+// TEST_DATABASE_URL. Elsewhere the test skips, and `make test` counts the skips.
+func testDB(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL isn't set (make test sets it)")
+	}
+	pool, err := pgxpool.New(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+func TestDatabaseAnswers(t *testing.T) {
+	if err := testDB(t).Ping(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 

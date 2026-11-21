@@ -5,6 +5,7 @@
 #
 #   scripts/template-update.sh            # merges the template's latest release, v<x.y.z>
 #   REF=main scripts/template-update.sh   # or a branch or tag: its unreleased work, or an older release
+#   NO_COMMIT=1 scripts/template-update.sh  # stop with the merge staged, to review it with your own changes
 #
 # Stops without committing if a template file conflicts, which happens only where the project
 # edited one: `make check` warns about those. Resolve, then `git commit`. After merging, prints
@@ -44,8 +45,14 @@ if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
 	git diff --name-only --diff-filter=U >&2
 	exit 1
 fi
-git commit -q -m "Merge $ref (make template-update)"
-echo "merged $ref: $(git rev-parse --short "$ref")"
-git diff --stat "$before" HEAD | tail -1
-notes=$(git diff "$before" HEAD -- platform/CHANGELOG.md | sed -n 's/^+\([^+]\)/\1/p; s/^+$//p')
+if [ -n "${NO_COMMIT:-}" ]; then
+	echo "merged $ref: $(git rev-parse --short "$ref"), staged and not committed; review, then git commit (or git merge --abort)"
+	git diff --cached --stat "$before" | tail -1
+	notes=$(git diff --cached "$before" -- platform/CHANGELOG.md | sed -n 's/^+\([^+]\)/\1/p; s/^+$//p')
+else
+	git commit -q -m "Merge $ref (make template-update)"
+	echo "merged $ref: $(git rev-parse --short "$ref")"
+	git diff --stat "$before" HEAD | tail -1
+	notes=$(git diff "$before" HEAD -- platform/CHANGELOG.md | sed -n 's/^+\([^+]\)/\1/p; s/^+$//p')
+fi
 [ -z "$notes" ] || printf '\nWhat changed, from platform/CHANGELOG.md; do what it says for each release:\n%s\n' "$notes"

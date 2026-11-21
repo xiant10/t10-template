@@ -4,11 +4,24 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
-## Unreleased
+## v0.10.0 (Nov 20, 2026)
 
-- **auth-server `sha-95e9f9b`**, the only foundation image whose `latest` moved since the last pins. It starts without LiveKit, with voice off (upstream U10, U15 done), so without the `livekit` component auth-server no longer gets placeholder LiveKit values: the component sets `LIVEKIT_URL` and `LIVEKIT_API_KEY` beside its secret.
+What a review against kuaidan-sales's findings turned up: servers run pinned images again, `make test` runs a module's database tests, and the kit gives a module its own token and its tenants' members.
 
-**In a project:** nothing, unless `site/` set `LIVEKIT_*` for auth-server only to get past the placeholders; drop it. Then `make verify`.
+- **A server runs each foundation image by digest; local follows `latest`** (kuaidan-sales's finding 13). Since Nov 18 the foundation followed `latest` everywhere, though `design.md` said every image was pinned, so a server ran whatever was pushed last at its next pull. `versions.env` is now layered like settings, `config/<layer>/versions.env` after each part's own, and `foundation/config/server/versions.env` pins every foundation image as `sha-<commit>@<digest>` for dev and prod (auth-server at `sha-f1e0b06`, which starts without LiveKit, upstream U10 and U15, so without the `livekit` component auth-server no longer gets placeholder LiveKit values). `make check ENV=<env>` fails on a server image without a digest. `make pin ENV=prod WRITE=1` moves a server's pins to today's `latest` and never rewrites a line that follows `latest`. `POSTGRES_IMAGE` is pinned by digest too, and `lib.py version` takes the environment: `version ENV NAME`.
+- **`make test` runs a module's database tests** (finding 17). It runs the `test` stage as a container beside a throwaway Postgres, with `TEST_DATABASE_URL` naming an empty database of the module's own, and prints how many tests skipped. The scaffold's test stage checks `gofmt`, compiles each package's tests with Go's caches, and is labelled `t10.test=run`; its `server_test.go` has `testDB(t)`, which skips without `TEST_DATABASE_URL`. A Dockerfile without the label is tested as before, while it builds. The kit's own tests check `gofmt` too.
+- **`module.Service`: a module's own token, and its tenants' members** (findings 16, 26). `Auth.ServiceToken(ctx)` is the kit's cached, renewed service token, exported, for every client that calls as the module, and `Auth.Members(ctx, tenant)` reads a tenant's active members and their org units from auth-server. `Fake` answers both, for tests and `make alone`, so a module gets them from whichever `NewAccess` made: `access.(module.Service)`.
+- **`make seed-demo` goes on when the sample accounts exist** (finding 12), so each part's hooks still run; `make verify` seeds twice to keep it so. Upstream U19 asks `authctl samples-add` to answer 0 then.
+- **`NO_COMMIT=1 make template-update`** stops with the merge staged, so a project can commit it with the work its notes ask for (finding 18).
+
+**In a project:**
+
+1. A module in its own repo whose `versions.env` still says `latest` fails `make check` on a server: pin it to `sha-<commit>@<digest>` (`make pin ENV=prod` shows the digest for a public image). A foundation image the project overrode in `site/versions.env` no longer reaches its servers, since the template's server pins come after it: move that line to `site/config/server/versions.env` (or `site/config/local/versions.env` for this machine only), pinned by digest for a server. If `site/` set `LIVEKIT_*` for auth-server only to get past the placeholders, drop it.
+2. For each `modules/<id>/src/Dockerfile` made before this release, replace its `test` stage with the scaffold's (`platform/scripts/scaffold/go/Dockerfile`, from `FROM build AS test` to the blank line before `FROM alpine`), and run `gofmt -w` on the module if `make test` names files. A database test that read its own variable, such as `SALES_TEST_DATABASE_URL`, reads `TEST_DATABASE_URL`. Until then, `make test` tests the module as before.
+3. A module that gets its own service token, or reads `/v1/org/members`, can use `module.Service` instead.
+4. A script that calls `lib.py version NAME` calls `lib.py version <env> NAME`.
+
+Then `make verify`.
 
 ## v0.9.3 (Nov 19, 2026)
 

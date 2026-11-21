@@ -24,7 +24,7 @@ if [ -n "$(python3 -I -B platform/scripts/lib.py built "$module" 2>/dev/null)" ]
 fi
 if [ -z "${IMAGE:-}" ]; then
 	var=T10_$(echo "$module" | tr '[:lower:]-' '[:upper:]_')
-	IMAGE=$(python3 -I -B platform/scripts/lib.py version "$var")
+	IMAGE=$(python3 -I -B platform/scripts/lib.py version "${ENV:-local}" "$var")
 fi
 
 tmp=$(mktemp -d)

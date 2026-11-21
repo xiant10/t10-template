@@ -130,7 +130,7 @@ func (a *Auth) Agent(ctx context.Context, header, action string) (Caller, error)
 // Ready gets this service's own token and verifies it, so /readyz fails until auth-server
 // knows this service and serves its keys.
 func (a *Auth) Ready(ctx context.Context) error {
-	token, err := a.serviceToken(ctx)
+	token, err := a.ServiceToken(ctx)
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (a *Auth) Ready(ctx context.Context) error {
 
 // entitled is one person's live status and grants in this module. Nothing is cached.
 func (a *Auth) entitled(ctx context.Context, tenant, user string) (Caller, error) {
-	token, err := a.serviceToken(ctx)
+	token, err := a.ServiceToken(ctx)
 	if err != nil {
 		return Caller{}, err
 	}
@@ -181,7 +181,10 @@ func (a *Auth) entitled(ctx context.Context, tenant, user string) (Caller, error
 	return c, nil
 }
 
-func (a *Auth) serviceToken(ctx context.Context) (string, error) {
+// ServiceToken is this service's own token from auth-server, cached and renewed before it
+// expires: for any client that calls auth-server or another service as the module itself,
+// rather than as a person, so a module never repeats the exchange.
+func (a *Auth) ServiceToken(ctx context.Context) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.serviceTok != "" && time.Until(a.serviceUntil) > 30*time.Second {

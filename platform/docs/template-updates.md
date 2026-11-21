@@ -43,7 +43,7 @@ Change only the project's paths, and commit and push to `origin` as usual. When 
 | --- | --- |
 | A foundation service's setting | `site/config/<service>.env`, or `site/config/<env>/<service>.env` for one environment |
 | Ports, public addresses, project name, which components run | `site/config/settings.env`, or `site/config/<env>/settings.env` |
-| An image the template pins | `site/versions.env`, as a deliberate exception |
+| An image the template pins | `site/config/server/versions.env` for servers, `site/config/local/versions.env` for this machine, as a deliberate exception |
 | How a module plugs in | `modules/<id>/compose/<name>.yml`, which overrides its generated wiring |
 | A secret the project adds | `site/secrets.json`, and its value in `site/secrets/<env>.env` |
 | An OAuth client, catalog, agent route or workbench entry of its own, or a change to the foundation's | `site/clients.json` (`"_merge": true` to change one), `site/permissions/`, `site/agent-routes.json`, `site/part.env` ([`guide.md`](guide.md#what-a-part-adds)) |
@@ -65,7 +65,7 @@ git push                  # to origin
 1. fetches the template, keeping its tags apart from the project's (under `refs/remotes/template/tags/`);
 2. merges the newest release tag, `v<x.y.z>`; `REF=main make template-update` takes the template's unreleased work instead, and `REF=v0.1.0` a given release;
 3. puts back `README.md`, `modules/`, `site/` and `.github/workflows/ci.yml` exactly as the project had them;
-4. commits the merge, and prints what [`CHANGELOG.md`](../CHANGELOG.md) added.
+4. commits the merge, and prints what [`CHANGELOG.md`](../CHANGELOG.md) added. With `NO_COMMIT=1` it stops before committing, the merge staged, so its **In a project** work can go in the same commit; `git commit` finishes it and `git merge --abort` drops it.
 
 Read that output: each release's **In a project** notes say what a project must do, such as slimming a module's folder after the template takes over part of it. Do them, then `make verify`, and commit.
 
@@ -124,4 +124,4 @@ Building a real module is how the template's gaps show up: a bug in the kit, a r
 
 ## Foundation images
 
-The foundation's pins in `foundation/versions.env` belong to the template, because they're the set it was tested with. A project takes new foundation images through a template release. If a project must run a different image before then, it pins it in `site/versions.env` and says why there; `make pin` shows what's newer.
+Local follows each foundation image's `latest`, so it meets foundation changes first. A server's pins, in `foundation/config/server/versions.env`, belong to the template, because they're the set it was tested with, and a project takes new ones through a template release. If a project's servers must run a different image before then, it pins it by digest in `site/config/server/versions.env` (or `site/config/<env>/versions.env`) and says why there; `make pin ENV=prod` shows what's newer.

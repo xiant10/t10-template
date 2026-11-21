@@ -30,6 +30,11 @@ def tracked_files():
     return [f for f in out.split("\0") if f and not f.startswith(("generated/", "modules/")) and (ROOT / f).is_file()]
 
 
+def lib_env(path):
+    """An env file's values, without lib (the tests run the scripts, as a project would)."""
+    return dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line and not line.startswith("#"))
+
+
 class Project:
     """A throwaway project made from this checkout."""
 
@@ -205,6 +210,20 @@ class Parts(TestCase):
         self.p.write("site/config/uat/settings.env", "SHAPE=prod\nLAYERS=staging\n")
         r = self.p.run(*PY, "platform/scripts/lib.py", "setting", "uat", "PROJECT_NAME", check=False)
         self.assertIn("LAYERS must include server", r.stderr)
+
+    def test_servers_run_images_by_digest(self):
+        local = lib_env(self.p.render("local") / "versions.env")
+        self.assertTrue(local["T10_AUTH_SERVER"].endswith(":latest"))
+        prod = lib_env(self.p.render("prod") / "versions.env")
+        self.assertEqual([k for k, v in prod.items() if "@sha256:" not in v], [])
+        self.assertEqual(self.p.script("lib.py", "version", "dev", "T10_COLLAB").stdout.strip(), prod["T10_COLLAB"])
+        # A site layer wins for its own environment only, and check refuses a tag on a server.
+        self.p.write("site/config/prod/versions.env", "T10_COLLAB=ghcr.io/xiant10/t10-collab:latest\n")
+        self.assertEqual(self.p.script("lib.py", "version", "prod", "T10_COLLAB").stdout.strip(), "ghcr.io/xiant10/t10-collab:latest")
+        self.assertEqual(self.p.script("lib.py", "version", "dev", "T10_COLLAB").stdout.strip(), prod["T10_COLLAB"])
+        r = self.p.run(*PY, "platform/scripts/check.py", check=False, ENV="prod")
+        self.assertIn("FAIL every image prod runs is pinned by digest", r.stdout)
+        self.assertIn("T10_COLLAB=ghcr.io/xiant10/t10-collab:latest", r.stdout)
 
     def test_owned(self):
         self.assertEqual(self.p.script("lib.py", "owned").stdout.split(), ["README.md", "modules", "site", ".github/workflows/ci.yml"])
@@ -695,6 +714,19 @@ class TemplateUpdate(unittest.TestCase):
         self.assertEqual((self.project / "platform/docs/guide.md").read_text(), "new guide\n")
         self.assertEqual((self.project / "site/config/settings.env").read_text(), "PROJECT_NAME=mine\n")
         self.assertEqual((self.project / "README.md").read_text(), "# Mine\n")
+
+    def test_no_commit_stops_with_the_merge_staged(self):
+        head = self.git(self.project, "rev-parse", "HEAD")
+        changelog = self.template.dir / "platform/CHANGELOG.md"
+        changelog.write_text(changelog.read_text() + "\n## v9.0.0\n\n- Do this first.\n")
+        (self.template.dir / "README.md").write_text("# Template\n")
+        self.git(self.template.dir, "commit", "-qam", "v9")
+        out = self.update(NO_COMMIT="1")
+        self.assertIn("staged and not committed", out)
+        self.assertIn("Do this first.", out)
+        self.assertEqual(self.git(self.project, "rev-parse", "HEAD"), head)
+        self.assertIn("platform/CHANGELOG.md", self.git(self.project, "diff", "--cached", "--name-only"))
+        self.assertNotIn("README.md", self.git(self.project, "diff", "--cached", "--name-only"))
 
 
 if __name__ == "__main__":

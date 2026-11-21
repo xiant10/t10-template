@@ -11,7 +11,8 @@
    grant, and every runtime clients.yaml gives its tools to. render.py puts them there; this
    catches a pack it can't.
 5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
-   module built from modules/<id>/src/ needs `make release` first.
+   module built from modules/<id>/src/ needs `make release` first. Every image runs by digest
+   there, never a tag such as `latest` that can move under it.
 6. Compose renders, and the bundle in generated/<env>/ mounts nothing from outside itself, so
    `make deploy` can copy it to a host as it is. On a server, every service rotates its logs and
    has a memory limit. With TARGET=k8s, its Kubernetes objects build with kustomize, and no
@@ -126,15 +127,19 @@ if lib.shape(ENV) != "local":
     todo += [f"{f.stem}: {k}" for f in sorted((lib.GENERATED / ENV / "env").glob("*.env"))
              for k, v in lib.read_env(f).items() if v == "TODO"]
     check(f"no TODO left in {ENV}'s settings (set them in site/config/{ENV}/)", not todo, "; ".join(todo))
-    unpinned = [k for k, v in lib.versions().items() if v == "TODO"]
+    unpinned = [k for k, v in lib.versions(ENV).items() if v == "TODO"]
     check(f"every image {ENV} runs is pinned (make release MODULE=<id> for one built from modules/<id>/src/)", not unpinned, ", ".join(unpinned))
+    # A tag can move under a server, so it runs each image by digest: `latest` is for local only.
+    floating = [f"{k}={v}" for k, v in lib.versions(ENV).items() if v != "TODO" and "@sha256:" not in v]
+    check(f"every image {ENV} runs is pinned by digest (make pin ENV={ENV} WRITE=1, or a config/server/versions.env line)",
+          not floating, ", ".join(floating))
     # A module built from modules/<id>/src/ runs its released image there, but its pack comes from there, so
     # both must be the same commit.
     for folder, _, m in lib.modules():
         if not lib.in_project(folder):
             continue
         src = f"modules/{folder.name}/src"
-        pin = lib.versions().get("T10_" + m["MODULE_ID"].upper().replace("-", "_"), "")
+        pin = lib.versions(ENV).get("T10_" + m["MODULE_ID"].upper().replace("-", "_"), "")
         tag = re.search(r":sha-([0-9a-f]+)@", pin)
         released = run("git", "rev-parse", "--verify", "-q", f"{tag.group(1)}^{{commit}}").stdout.strip() if tag else ""
         last = run("git", "log", "-1", "--format=%H", "--", src).stdout.strip()

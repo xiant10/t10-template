@@ -18,7 +18,7 @@ A project made from this template deploys one or more business modules on the t1
 
 ## Goals
 
-- **Foundation as images.** Every foundation service comes from `ghcr.io/xiant10/*` at a pinned tag. Upgrading the foundation means changing a version file.
+- **Foundation as images.** Every foundation service comes from `ghcr.io/xiant10/*`: its `latest` on local, and on a server the tag and digest the template pinned. Upgrading a server's foundation means changing a version file.
 - **The module owns its integration.** A module's permissions, OAuth clients, agent, tool routes and database live in its image and its folder. They aren't stored in `t10-agents`, the workspace's `deploy/k8s/catalog/` or `auth-setup`.
 - **One description, two targets.** Docker Compose for development, demos and a small team's prod, and Kubernetes for real clusters. Kubernetes is made from Compose's resolved config (`scripts/kube.py`), so both run the same images, settings, secrets and module files. Both are built on this machine; a server cluster is planned.
 - **Repeatable.** A new module adds a `modules/<id>/` folder and gets the same commands. A new project starts from the template and adds its modules and `site/`.
@@ -119,22 +119,25 @@ What a module's tools need comes from its catalog's `agent` block, and is added 
 
 ## Versions
 
-Every image is pinned as `tag@digest`, in layers like everything else:
+Images are named in each part's `versions.env`, and then in its `config/<layer>/versions.env`, layer by layer, like settings:
 
 ```sh
-# foundation/versions.env: the template's set, tested together
-T10_AUTH_SERVER=ghcr.io/xiant10/auth-server:sha-acc963b@sha256:7fa5…
-# … one per foundation image, then third-party images
+# foundation/versions.env: local follows each foundation image's latest; third-party images by digest
+T10_AUTH_SERVER=ghcr.io/xiant10/auth-server:latest
+POSTGRES_IMAGE=postgres:17-alpine@sha256:526f…
+# foundation/config/server/versions.env: a server's set, pinned by digest, tested together
+T10_AUTH_SERVER=ghcr.io/xiant10/auth-server:sha-f1e0b06@sha256:593f…
 # modules/<id>/versions.env: the module's own image
 T10_CRM=ghcr.io/xiant10/t10-crm:…
-# site/versions.env, optional: a pin this project needs to differ, such as a foundation fix
+# site/config/<layer>/versions.env, optional: a pin this project needs to differ (site/versions.env
+# comes before every layer, so it can't change a server's foundation pin)
 ```
 
-`render.py` merges them into the bundle's `versions.env`, later ones winning. The foundation's pins belong to the template because they're the set it was tested with; a project that must run another version says so in `site/versions.env`, where it shows as a deliberate exception.
+`render.py` merges them into the bundle's `versions.env`, later ones winning. The server pins belong to the template because they're the set it was tested with; a project that must run another version says so in `site/config/server/versions.env` (or `site/config/<env>/`), where it shows as a deliberate exception.
 
-- Never `latest`. The foundation repos have no release tags, but CI publishes `sha-<short>` tags, so we pin those, and the digest makes sure that's what's pulled. The tag also names the repo commit, so the Kubernetes work can take each repo's manifests at its own image's commit.
-- A module is pinned once its image has a pack. Until then it may stay on `latest`, and `make check` skips its pack comparison.
-- To upgrade: `make pin` shows what each public image's `latest` is, and `make pin WRITE=1` writes it into the `versions.env` that wins for it: `foundation/`'s in the template, or `site/`'s where a project overrides one. Then `make sync-module`, `make check`, `make up` and `make smoke`. One commit records the set of versions that worked together.
+- `latest` on local only (since Nov 18), so work on this machine meets each foundation change at its next pull. A server never runs a tag that can move: `make check ENV=<env>` fails on any image without a digest. The foundation repos have no release tags, but CI publishes `sha-<short>` tags, so servers pin those, and the digest makes sure that's what's pulled. The tag also names the repo commit, so the Kubernetes work can take each repo's manifests at its own image's commit.
+- A module in its own repo is pinned by digest for servers from its first deploy. Until its image has a pack, `make check` skips the pack comparison.
+- To upgrade a server's foundation: `make pin ENV=prod` shows what each public image's `latest` is, and `make pin ENV=prod WRITE=1` writes it into the `versions.env` that wins for it: `foundation/config/server/`'s in the template, or `site/`'s where a project overrides one. A line that follows `latest` is never rewritten. Then `make sync-module`, `make check`, `make up` and `make smoke`. One commit records the set of versions that worked together.
 - The foundation should tag releases, so that a pin means something to people (U1).
 
 ## Environments and targets
@@ -171,7 +174,7 @@ What an environment runs is the same across targets: the merged `env/<service>.e
 
 **Each part's Compose files.** `compose/base.yml` holds what every environment runs, and nothing that differs by environment. `compose.sh` adds each part's `compose/<layer>.yml` for the environment's layers, then `compose/build.yml` for `DEV=1` and `compose/scripted.yml` for `SCRIPTED=1` from whichever parts have one. `local.yml` publishes the services on `127.0.0.1` and runs LiveKit in dev mode. `server.yml` publishes nothing but Caddy (80, 443) and LiveKit's media ports, and runs LiveKit with its keys and the host's public IP. Neither undoes the other: `base.yml` publishes nothing.
 
-**`foundation/compose/base.yml`** runs the core, with every `image:` read from `versions.env`: postgres, auth-server, t10-agent-control and its one-shot route publisher, ai-gateway (`llm`, `tools`, `agent`), t10-collab, t10-knowledge, agent-ti with t10-agents, and workbench. The rest of quickstart's `compose.all.yml` is in components, `foundation/components/<name>/`, each a part like a module: `assistant` (agent-pi), `livekit` (LiveKit and t10-livekit-agent), `console` and `automations`. `FOUNDATION` lists the ones that run, the template's list naming all four; one left out isn't a part, so its services, settings, secrets and clients go with it. Every image, a component's too, is pinned in `foundation/versions.env`. agent-sales isn't run (removed Nov 16). Whatever runs, every path goes through a gateway.
+**`foundation/compose/base.yml`** runs the core, with every `image:` read from `versions.env`: postgres, auth-server, t10-agent-control and its one-shot route publisher, ai-gateway (`llm`, `tools`, `agent`), t10-collab, t10-knowledge, agent-ti with t10-agents, and workbench. The rest of quickstart's `compose.all.yml` is in components, `foundation/components/<name>/`, each a part like a module: `assistant` (agent-pi), `livekit` (LiveKit and t10-livekit-agent), `console` and `automations`. `FOUNDATION` lists the ones that run, the template's list naming all four; one left out isn't a part, so its services, settings, secrets and clients go with it. Every image, a component's too, is named in `foundation/versions.env` and pinned for servers in `foundation/config/server/versions.env`. agent-sales isn't run (removed Nov 16). Whatever runs, every path goes through a gateway.
 
 - **Turns.** `workbench`, `t10-automations` and modules call `ai-gateway-agent`, which takes its routes from `t10-agent-control`. The route document is the rendered `agent-routes.json`. A module's agent gets a pool on agent-ti's replicas at `/agents/<agent>`, with its own runtime as audience. It isn't a `hosts` entry under `ti`, because t10-agent-control's router never places a hosted agent. A module sends `Agent-Name: <agent>`.
 - **Models.** Harnesses use `ai-gateway-llm`. Provider keys exist only there.

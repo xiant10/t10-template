@@ -13,7 +13,12 @@ ENV=${ENV:-local}
 [ "$(python3 -I -B platform/scripts/lib.py shape "$ENV")" = local ] || { echo "seed-demo is for local only" >&2; exit 1; }
 port() { python3 -I -B platform/scripts/lib.py setting "$ENV" "$1"; }
 
-platform/scripts/compose.sh exec -T auth-server authctl samples-add
+# upstream U19: authctl answers 1 when the sample accounts are there already; that alone isn't a failure, so the
+# hooks still run (kuaidan-sales's finding 12).
+if ! out=$(platform/scripts/compose.sh exec -T auth-server authctl samples-add 2>&1); then
+	echo "$out" | grep -q "sample accounts already exist" || { echo "$out" >&2; exit 1; }
+fi
+echo "$out"
 AUTH_URL="http://127.0.0.1:$(port AUTH_PORT)"
 export ENV T10_PG_USER=t10 AUTH_URL
 python3 -I -B platform/scripts/hook.py seed-demo

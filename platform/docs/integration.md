@@ -6,7 +6,7 @@ The rule: **a module is proven alone before it meets the foundation.** A failure
 
 | Gate | Command | Needs | Proves |
 | --- | --- | --- | --- |
-| 1. Unit | `make test MODULE=<id>` | Docker only | Its own code: tools, API, data logic, with auth-server stood in for by `module.Fake` |
+| 1. Unit | `make test MODULE=<id>` | Docker only | Its own code: tools, API, data logic against a throwaway Postgres, with auth-server stood in for by `module.Fake` |
 | 2. Alone | `make contract MODULE=<id>` | Docker only: the module and its own Postgres | It keeps the module contract by itself: its pack is a version this template reads and agrees with itself, and its service answers what every module must, with a person's and an agent's tokens, for the capabilities it has |
 | 3. Integrated | `make up`, `make smoke` | The whole foundation | It plugs in: its accounts, grants, catalog, clients, agent and route work with the real auth-server, gateways and agent; its agent answers a turn whose tool call reaches it |
 | 4. Server | `make release`, `make check ENV=<env>`, `make deploy`, `make smoke ENV=<env>` | A host | The released image is the code that passed, with the environment's real addresses and secrets |
@@ -15,7 +15,7 @@ The rule: **a module is proven alone before it meets the foundation.** A failure
 
 ## Gate 1: unit
 
-`make test MODULE=<id>` builds the module's Dockerfile `test` stage: `go vet` and `go test`, with the image's own toolchain. Its tests use `module.Fake` for auth-server, so they need no stack. What every module answers is tested in the kit (`kit/go/module`); a module's tests cover its own tools and API.
+`make test MODULE=<id>` builds the module's Dockerfile `test` stage, which checks `gofmt` and `go vet` and compiles the tests with the image's own toolchain, then runs it as a container beside a throwaway Postgres, with `TEST_DATABASE_URL` naming a database of the module's own, made empty for the run. It prints what didn't pass and how many tests skipped, so a database test that skips can't go unnoticed. A test that needs the database gets it from `testDB(t)` in the scaffold's `server_test.go`, which skips where `TEST_DATABASE_URL` isn't set, such as `go test` on this machine. Its tests use `module.Fake` for auth-server, so they need no stack. What every module answers is tested in the kit (`kit/go/module`); a module's tests cover its own tools and API.
 
 ## Gate 2: alone
 

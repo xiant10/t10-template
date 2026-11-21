@@ -16,7 +16,7 @@ Shell scripts ask it for settings instead:
     platform/scripts/lib.py setting ENV NAME     # one value from the parts' settings.env files
     platform/scripts/lib.py shape ENV            # local, dev or prod: the template environment ENV is built on
     platform/scripts/lib.py target ENV           # compose or k8s: what runs it
-    platform/scripts/lib.py version NAME         # one image from the parts' versions.env files
+    platform/scripts/lib.py version ENV NAME     # one image from the parts' versions.env files, for ENV
     platform/scripts/lib.py sources              # each module in its own repo: "DIR REPO", one per line
     platform/scripts/lib.py built [ID]           # each module built in the project: "ID DIR SERVICE", one per line
     platform/scripts/lib.py owned                # the paths a project owns, which template updates leave alone
@@ -257,9 +257,9 @@ def service_layers(service, env):
 
 
 def services_configured(env):
-    """Every service with a settings file in some part."""
+    """Every service with a settings file in some part (not settings.env or versions.env)."""
     dirs = [part / "config" / name for part in parts() for name in ["", *layers(env)]]
-    return sorted({p.stem for d in dirs for p in d.glob("*.env") if p.name != "settings.env"})
+    return sorted({p.stem for d in dirs for p in d.glob("*.env") if p.name not in ("settings.env", "versions.env")})
 
 
 def secrets_file(env):
@@ -333,14 +333,20 @@ def write_secrets(env, text):
         secrets_file(env).chmod(0o600)
 
 
-def versions_files():
-    """Every part's versions.env, in order: foundation's pins, each module's image, site's overrides."""
-    return [p / "versions.env" for p in parts() if (p / "versions.env").exists()]
+def versions_files(env=None):
+    """Every part's versions.env, in order: foundation's images, each module's, site's overrides;
+    then, for env, every part's config/<layer>/versions.env, layer by layer, as settings_files.
+    The foundation follows `latest` in its own versions.env and is pinned by digest for servers in
+    config/server/versions.env."""
+    files = [p / "versions.env" for p in parts()]
+    if env:
+        files += [p / "config" / name / "versions.env" for name in layers(env) for p in parts()]
+    return [f for f in files if f.exists()]
 
 
-def versions():
+def versions(env=None):
     out = {}
-    for f in versions_files():
+    for f in versions_files(env):
         out.update(read_env(f))
     return out
 
@@ -509,9 +515,9 @@ if __name__ == "__main__":
         print(shape(sys.argv[2]))
     elif sys.argv[1:2] == ["target"] and len(sys.argv) == 3:
         print(target(sys.argv[2]))
-    elif sys.argv[1:2] == ["version"] and len(sys.argv) == 3:
-        value = versions().get(sys.argv[2])
-        sys.exit(f"no part's versions.env has {sys.argv[2]}") if value is None else print(value)
+    elif sys.argv[1:2] == ["version"] and len(sys.argv) == 4:
+        value = versions(sys.argv[2]).get(sys.argv[3])
+        sys.exit(f"no part's versions.env has {sys.argv[3]} for {sys.argv[2]}") if value is None else print(value)
     elif sys.argv[1:] == ["sources"]:
         for s in sources():
             print(s["DIR"], s["REPO"])

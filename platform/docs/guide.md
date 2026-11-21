@@ -31,10 +31,11 @@ What a module shares with every other module (how it plugs into the foundation, 
 │   ├── tests/                   the template's own tests (`make test-template`)
 │   ├── docs/                    how the template works
 │   └── foundation/              the foundation's images and defaults
-│       ├── versions.env         the foundation and third-party pins, tested together
+│       ├── versions.env         the foundation's images (latest, for local) and third-party pins
 │       ├── compose/             base.yml: every core service; local.yml: published ports;
 │       │                        server.yml: Caddy and LiveKit on a server; scripted.yml: SCRIPTED=1
-│       ├── config/              <service>.env for every environment, local/ and server/ for some, <service>/ for files
+│       ├── config/              <service>.env for every environment, local/ and server/ for some, <service>/ for files;
+│       │                        server/versions.env pins every foundation image by digest for servers
 │       ├── components/<name>/   optional pieces a project picks in FOUNDATION: assistant, livekit, console, automations;
 │       │                        each a part, with part.env for what it REQUIRES and adds to the lists
 │       ├── scripted/            the scripted model SCRIPTED=1 runs
@@ -118,7 +119,7 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `make seed-demo` | The foundation's sample accounts, then each part's `hooks/seed-demo` (local only) |
 | `make smoke` | Checks the running stack: every service, sign-in, each module's contract and app, every agent route and a turn with each module agent, then each part's `hooks/smoke` |
 | `make check` | Checks that need no running stack: packs match their images, secrets are complete, grants reached every place, Compose renders, the bundle mounts nothing from outside itself, and on a server, no `TODO` is left and each module from `modules/<id>/src/` is released as committed |
-| `make test` | Each module's own tests from `modules/<id>/src/`, in Docker (`MODULE=<id>` for one) |
+| `make test` | Each module's own tests from `modules/<id>/src/`, in Docker beside a throwaway Postgres, `TEST_DATABASE_URL` (`MODULE=<id>` for one) |
 | `make contract MODULE=<id>` | One module alone, with its own Postgres and no foundation: its pack and the contract its service must keep ([`integration.md`](integration.md)); `make alone` keeps it running |
 | `make reload MODULE=<id>` | After changing a module in `modules/<id>/src/`: rebuild and restart it, and what reads its pack if that changed |
 | `make verify` | Every gate from empty volumes: `test`, each module's `contract`, then `down-all`, `up`, `seed-demo`, `check`, `smoke`. Run it before calling a change done |
@@ -127,8 +128,8 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `make config-show SVC=<service>` | A service's settings, and which file each came from |
 | `make deploy ENV=<env>` | Copy the environment's bundle to its host over SSH and start it there, after `make check` |
 | `make secrets-key`, `secrets-init`, `secrets-set`, `secrets-edit`, `rotate` | An environment's secrets: [below](#secrets) |
-| `make template-update` | Merge the template's latest release (`REF=` for another), keeping the project's paths, and print its changelog |
-| `make pin` (`WRITE=1`) | What each foundation image's `latest` is, and optionally pin it in the `versions.env` that wins for it |
+| `make template-update` | Merge the template's latest release (`REF=` for another), keeping the project's paths, and print its changelog; `NO_COMMIT=1` leaves the merge staged |
+| `make pin ENV=prod` (`WRITE=1`) | What each foundation image's `latest` is, and optionally pin a server's images to it, in the `versions.env` that wins for each; lines that follow `latest` are left alone |
 | `make sync-module MODULE=<id>` | For a module in its own repo: copy its pack out of its pinned image into `modules/<id>/pack/` |
 | `make clone` / `make status` | Clone each module that has its own repo into `modules/<id>/src/`; show this repo's and their changes |
 | `make routes-publish` | Publish the route document again after an agent changes (`make up` does it) |
@@ -175,7 +176,7 @@ Every service reads one file, `generated/<env>/env/<service>.env`, merged from e
 | This project, one service, every environment | `site/config/<service>.env` |
 | This project, one service, one environment | `site/config/<env>/<service>.env` |
 | Ports, public addresses, deploy host, `PROJECT_NAME` | `settings.env` in the same places: values Compose interpolates and scripts read |
-| A different image than the template pins | `site/versions.env`, as a deliberate exception |
+| A different image than the template pins | `site/config/server/versions.env` (servers), `site/config/<env>/versions.env` (one environment) or `site/config/local/versions.env` (this machine), as a deliberate exception. `site/versions.env` comes before every layer, so it can't change a foundation image on a server |
 
 Then `make up`, which recreates only the containers whose settings changed. `make config-show SVC=<service>` shows where each value came from.
 
@@ -238,7 +239,7 @@ Compose never runs from the checkout. Every command first renders `generated/<en
 
 - each part's `compose/`, `config/`, `scripted/`, `pack/` and `init-db.sh`, copied, and each module's pack (from `modules/<id>/src/module/` for a module in the project);
 - each module's standard wiring, `modules/<id>/standard/<name>.yml` for `base`, `local` and `build`, written from its `module.env`;
-- `env/<service>.env`, each service's merged settings; `secrets/<service>.env`, its secrets, and `secrets.yml`, which has each service read them; `versions.env`, every part's merged;
+- `env/<service>.env`, each service's merged settings; `secrets/<service>.env`, its secrets, and `secrets.yml`, which has each service read them; `versions.env`, every part's merged, then each layer's;
 - what's merged from the packs: `clients.yaml`, `permissions/`, `agent-routes.json`, `modules.env`, and each agent's grant;
 - on a server, the `Caddyfile`: one site per public address;
 - `compose.sh`, which runs Compose on all of it, as project `<PROJECT_NAME>-<env>`.
@@ -251,7 +252,7 @@ A server environment (`dev`, `prod`, or one built on them) runs on its host, `DE
 
 | Command | Does |
 | --- | --- |
-| `make check ENV=<env>` | Everything that can be checked here first: no `TODO`, every image pinned and each module released as committed, secrets complete and encrypted, and every service with rotated logs and a memory limit |
+| `make check ENV=<env>` | Everything that can be checked here first: no `TODO`, every image pinned by digest and each module released as committed, secrets complete and encrypted, and every service with rotated logs and a memory limit |
 | `make deploy ENV=<env>` | `make check`, then copies the bundle with its secrets, starts it, and reloads Caddy |
 | `make smoke ENV=<env>` | Its public addresses, through Caddy |
 | `make ps`, `logs`, `down` with `ENV=<env>` | Run on the host, over SSH, on its bundle; `make up` there is `make deploy` |
