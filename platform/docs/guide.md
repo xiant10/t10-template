@@ -8,7 +8,7 @@ One rule: **the root and `platform/` belong to the template; `README.md`, `modul
 
 A project changes only its own paths (`lib.OWNED` in `platform/scripts/lib.py`, which `make template-update` and `make check` both read). Everything else comes from the template and is changed there, so every project gets the change and `make template-update` merges cleanly. A project that needs a different value overrides it from `site/`; it never edits a template file. What it adds goes in `site/` too: clients, catalogs, agent routes and list entries ([What a part adds](#what-a-part-adds)), steps around its commands ([Hooks](#hooks)), and commands of its own ([below](#a-projects-own-commands)). `make check` warns about any template file a project edited.
 
-What a module shares with every other module (how it plugs into the foundation, and the Go code every module's service needs) is the template's too: `platform/scripts/wiring.py` and `platform/kit/go/`. A module's own folders hold only what's particular to it, so a fix to what they share reaches every module with a template update.
+What a module shares with every other module (how it plugs into the foundation, and the Go code every module's service needs) is shared too: `platform/scripts/wiring.py`, the template's, and [t10-modkit](https://github.com/xiant10/t10-modkit/blob/main/docs/api.md), the Go module every module's service imports at the tag the template pins (`T10_MODKIT` in `platform/foundation/versions.env`). A module's own folders hold only what's particular to it, so a fix to what they share reaches every module with a template update.
 
 ## Layout
 
@@ -27,7 +27,6 @@ What a module shares with every other module (how it plugs into the foundation, 
 │   │   ├── wiring.py            the standard wiring every module gets, from its module.env
 │   │   ├── hook.py              runs each part's hooks/<event>
 │   │   └── scaffold/<lang>/     what `make new-module` writes into modules/<id>/src/: go
-│   ├── kit/go/                  the Go kit every module's service imports: auth, MCP, routes
 │   ├── tests/                   the template's own tests (`make test-template`)
 │   ├── docs/                    how the template works
 │   └── foundation/              the foundation's images and defaults
@@ -133,7 +132,7 @@ An environment is a name the commands take as `ENV=`. The template ships three:
 | `make sync-module MODULE=<id>` | For a module in its own repo: copy its pack out of its pinned image into `modules/<id>/pack/` |
 | `make clone` / `make status` | Clone each module that has its own repo into `modules/<id>/src/`; show this repo's and their changes |
 | `make routes-publish` | Publish the route document again after an agent changes (`make up` does it) |
-| `make lint` / `make test-template` | The template's own checks: ruff and shellcheck, and `tests/` and `kit/go/`'s tests |
+| `make lint` / `make test-template` | The template's own checks: ruff and shellcheck, and `tests/`, which also builds a scaffolded module |
 
 Two switches, both local only:
 

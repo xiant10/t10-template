@@ -21,7 +21,7 @@ commit=$(git log -1 --format=%h -- "$src")
 [ -n "$commit" ] || { echo "$src has no commit yet" >&2; exit 1; }
 
 image=$registry/$service:sha-$commit
-docker build --platform "${PLATFORM:-linux/amd64}" --build-context kit=platform/kit/go --tag "$image" "$src"
+docker build --platform "${PLATFORM:-linux/amd64}" --tag "$image" "$src"
 docker push "$image"
 digest=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image" | grep "^$registry/$service@" | head -1 | cut -d@ -f2)
 [ -n "$digest" ] || { echo "no digest for $image after the push" >&2; exit 1; }

@@ -9,13 +9,13 @@ repo, and the project builds and runs it from here: its deployment is `modules/_
 | `server.go` | Its own routes beside the standard ones: the web app's page, and any API of its own |
 | `tools.go` | Its agent tools at `/mcp`; replace the example with the module's own |
 | `server_test.go` | Tests of its own tools and routes, with `module.Fake` for auth-server: no stack needed |
-| `go.mod` | Its dependencies, and the template's kit as `../../../platform/kit/go` (the Dockerfile uses its `kit` build context instead) |
+| `go.mod` | Its dependencies, among them `github.com/xiant10/t10-modkit` at the template's pinned tag, `T10_MODKIT` |
 | `module/` | The pack: `module.env`, its permission catalog, its agent, its OAuth clients ([`platform/docs/module.md`](../../../platform/docs/module.md)) |
 | `Dockerfile` | The image, with the pack at `/module`; its `test` stage runs vet and the tests |
 
 What every module answers (`/readyz`, `/v1/module`, `/v1/access`, the MCP protocol, and checking
-a person's or an agent's token against auth-server) comes from the template's kit,
-`t10kit/module` in `platform/kit/go/`, and its tests are there.
+a person's or an agent's token against auth-server) comes from t10-modkit,
+`github.com/xiant10/t10-modkit/module`, and its tests are there ([docs/api.md](https://github.com/xiant10/t10-modkit/blob/main/docs/api.md)).
 
 From the project's root:
 

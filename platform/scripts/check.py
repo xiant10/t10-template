@@ -19,6 +19,8 @@
    secret's value is in them (scripts/kube.py).
 7. Each part's hooks/check.py, run in here with check, ENV, bundle and run, and as `module`
    its module.env for a module's; or hooks/check.sh, one check that passes when it exits 0.
+1b. A warning for each module whose go.mod requires an older t10-modkit than the template pins
+   (T10_MODKIT in platform/foundation/versions.env). Never a failure.
 8. In a project with a `template` git remote, a warning for each template file it edited
    (anything outside lib.OWNED), since `make template-update` may conflict there. Never a failure.
 """
@@ -66,6 +68,23 @@ for folder, pack, m in lib.modules():
         print(f"skip modules/{folder.name}/pack: its pinned image has no pack yet")
     else:
         check(f"modules/{folder.name}/pack matches its pinned image", r.returncode == 0, (r.stdout + r.stderr).strip()[-400:])
+
+# 1b. t10-modkit. A module behind the template's tag still builds, so this only warns.
+def semver(tag):
+    m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+pinned = lib.read_env(lib.PLATFORM / "foundation" / "versions.env").get("T10_MODKIT", "")
+for folder in sorted(lib.MODULES.iterdir()) if lib.MODULES.exists() else []:
+    gomod = folder / lib.read_env(folder / "source.env").get("SRC", "src") / "go.mod"
+    if not gomod.exists():
+        continue
+    found = re.search(r"^\s*(?:require\s+)?github\.com/xiant10/t10-modkit\s+(\S+)", gomod.read_text(), re.M)
+    have = found.group(1) if found else ""
+    if semver(have) and semver(pinned) and semver(have) < semver(pinned):
+        print(f"warn modules/{folder.name} requires t10-modkit {have}, older than the template's {pinned}: "
+              f"cd {gomod.parent.relative_to(lib.ROOT)} && go get github.com/xiant10/t10-modkit@{pinned} && go mod tidy")
 
 # 2. Secrets.
 allow = ["--allow-empty=LLM_API_KEY"] if os.environ.get("SCRIPTED") else []

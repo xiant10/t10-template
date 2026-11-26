@@ -41,7 +41,6 @@ A project is split between `platform/` (which the **template** owns and `make te
 │   │   ├── config/                  default service settings (<service>.env) and layers; server/versions.env pins
 │   │   ├── components/<name>/       optional foundation pieces (assistant, livekit, console, automations)
 │   │   └── …                        clients.json, agent-routes.json, permissions/, secrets.json, init-db.sh
-│   ├── kit/go/                      Go SDK (`t10kit`) shared by modules: auth, web OAuth, MCP
 │   ├── scripts/                     rendering, wiring, checks, secrets, k8s, deploy, scaffolds
 │   │   ├── render.py                compiles parts and layers into generated/<env>/
 │   │   ├── wiring.py                synthesizes each module's Compose wiring, secrets and OAuth clients

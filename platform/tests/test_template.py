@@ -251,6 +251,25 @@ class NewModule(TestCase):
         self.assertNotIn("__", self.p.read("modules/crm/src/main.go"))
         self.assertEqual(broken_links(self.p.dir, ["modules/crm/README.md", "modules/crm/src/README.md"]), [])
 
+    def test_requires_the_pinned_modkit(self):
+        self.p.new_module("crm")
+        pinned = re.search(r"^T10_MODKIT=(\S+)$", self.p.read("platform/foundation/versions.env"), re.M).group(1)
+        gomod = self.p.read("modules/crm/src/go.mod")
+        self.assertIn(f"github.com/xiant10/t10-modkit {pinned}\n", gomod)
+        self.assertNotIn("replace", gomod)
+        self.assertNotIn("kit", self.p.read("modules/crm/src/Dockerfile").replace("t10-modkit", ""))
+        self.assertFalse((self.p.dir / "platform" / "kit").exists())
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_builds_from_its_own_folder(self):
+        """The scaffold's image builds from modules/<id>/src/ alone: vet, its tests compiled, and the
+        service, with t10-modkit fetched at its tag."""
+        self.p.new_module("crm")
+        src = self.p.dir / "modules" / "crm" / "src"
+        for target in ("test", "build"):
+            r = subprocess.run(["docker", "build", "-q", "--target", target, str(src)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, f"{target}: {r.stderr[-2000:]}")
+
     def test_next_module_gets_the_next_port(self):
         self.p.new_module("crm")
         self.p.new_module("shop")
@@ -455,7 +474,23 @@ class StandardWiring(TestCase):
         self.assertFalse(svc.get("read_only", False))
         self.assertEqual(svc["environment"]["EXTRA"], "yes-please")
         self.assertIn("DATABASE_URL", svc["environment"])
-        self.assertEqual(svc["build"]["additional_contexts"]["kit"], str(self.p.dir / "platform" / "kit" / "go"))
+        # The image builds from its own folder, with no kit beside it.
+        self.assertEqual(svc["build"]["context"], str(self.p.dir / "modules" / "crm" / "src"))
+        self.assertNotIn("additional_contexts", svc["build"])
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_check_warns_on_an_older_modkit(self):
+        pinned = re.search(r"^T10_MODKIT=(\S+)$", self.p.read("platform/foundation/versions.env"), re.M).group(1)
+        self.p.write("platform/foundation/versions.env", self.p.read("platform/foundation/versions.env").replace(f"T10_MODKIT={pinned}", "T10_MODKIT=v0.2.0"))
+        gomod = self.p.read("modules/crm/src/go.mod").replace(f"github.com/xiant10/t10-modkit {pinned}", "github.com/xiant10/t10-modkit v0.1.0")
+        self.p.write("modules/crm/src/go.mod", gomod)
+        self.p.secrets()
+        r = self.p.run("make", "check", check=False)
+        self.assertIn("warn modules/crm requires t10-modkit v0.1.0, older than the template's v0.2.0", r.stdout)
+        # Level with the template, it says nothing.
+        self.p.write("modules/crm/src/go.mod", gomod.replace("t10-modkit v0.1.0", "t10-modkit v0.2.0"))
+        r = self.p.run("make", "check", check=False)
+        self.assertNotIn("requires t10-modkit", r.stdout)
 
     @unittest.skipUnless(DOCKER, "needs docker")
     def test_check_passes(self):
@@ -643,17 +678,19 @@ def broken_links(root, files):
 
 class Docs(unittest.TestCase):
     """The docs say where things are now: no link to a file that isn't there, and no path from
-    before a layout change. The CHANGELOG is history, so it keeps the old paths."""
+    before a layout change. The CHANGELOG and upstream.md's table are history, so they keep the old paths."""
 
     STALE = (
         # src/<id>, src/<repo> or src/crm at the root, not inside modules/<id>/.
         (re.compile(r"(?<![\w/])src/(?:<\w+>|crm\b)"), "modules/<id>/src/"),
         (re.compile(r"\.\./\.\./kit/go"), "../../../platform/kit/go"),
+        # The template's Go kit became t10-modkit (v0.11.0).
+        (re.compile(r"platform/kit\b|\bt10kit\b|kit/go\b"), "t10-modkit (github.com/xiant10/t10-modkit) and its docs/api.md"),
     )
 
     def setUp(self):
         self.files = [f for f in tracked_files() if f.endswith((".md", ".py", ".sh", ".yml", "Dockerfile", "go.mod"))
-                      and f != "platform/CHANGELOG.md" and f != "platform/tests/test_template.py"]
+                      and f not in ("platform/CHANGELOG.md", "platform/tests/test_template.py", "platform/docs/upstream.md")]
 
     def test_links_resolve(self):
         # A scaffold's README is read from modules/<id>/src/, where NewModule checks its links.

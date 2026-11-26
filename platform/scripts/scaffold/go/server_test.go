@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"t10kit/module"
+	"github.com/xiant10/t10-modkit/module"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// What every module answers is tested in the kit (kit/go/module); these test this module's own.
+// What every module answers is tested in t10-modkit's module package; these test this module's own.
 
 var admin = module.Caller{TenantID: "ten_acme", UserID: "usr_1", TenantAdmin: true, Permissions: []string{}}
 

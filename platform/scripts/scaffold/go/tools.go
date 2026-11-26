@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"t10kit/module"
+	"github.com/xiant10/t10-modkit/module"
 )
 
 // readAction is the delegated action the tools here need unless one names another. Each

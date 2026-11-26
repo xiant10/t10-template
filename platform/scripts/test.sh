@@ -33,7 +33,7 @@ postgres() {
 while read -r id src _; do
 	echo "== $id: $src"
 	image=$project-$id
-	docker build --target test --build-context kit=platform/kit/go -t "$image" "$src"
+	docker build --target test -t "$image" "$src"
 	if [ "$(docker image inspect -f '{{index .Config.Labels "t10.test"}}' "$image")" = run ]; then
 		postgres
 		name=test_$(echo "$id" | tr -c 'a-z0-9\n' '_')

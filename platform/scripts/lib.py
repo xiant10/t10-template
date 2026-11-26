@@ -344,10 +344,17 @@ def versions_files(env=None):
     return [f for f in files if f.exists()]
 
 
+# What versions.env pins that isn't an image: t10-modkit's tag, for modules' go.mod.
+NOT_IMAGES = {"T10_MODKIT"}
+
+
 def versions(env=None):
+    """Every image pin, merged in order. T10_MODKIT, a Go module's tag, isn't one."""
     out = {}
     for f in versions_files(env):
         out.update(read_env(f))
+    for k in NOT_IMAGES:
+        out.pop(k, None)
     return out
 
 
