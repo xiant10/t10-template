@@ -4,6 +4,24 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.11.0 (Nov 26, 2026)
+
+The template's Go kit is gone: what every module answers comes from t10-modkit, a public Go module, imported by tag (upstream U16). A module's image builds from its own folder, with no copy of anything beside it.
+
+- **Modules require `github.com/xiant10/t10-modkit` at `T10_MODKIT`** (`platform/foundation/versions.env`, `v0.1.0`). `t10kit/module` is `github.com/xiant10/t10-modkit/module`, with the same API, built on t10-modkit's own packages; its account menu has no language or theme switch, since a person chooses both on the account page, as in every t10 app (`POST /frame/language` and `/frame/theme` still work). The verifier is t10-modkit's copy of auth-server's, kept equal by the t10 workspace's checks.
+- **No `kit` build context.** The scaffold's `go.mod` has no `replace`, its Dockerfile builds on `golang:1.27.4-alpine` from its own folder, and Compose, `make alone`, `make test` and `make release` pass no `kit` context. The build stage has `git`, so a tag Go's proxy hasn't fetched yet still downloads; `go.sum` pins every hash.
+- **`platform/kit/` is deleted**, and the docs point at t10-modkit's [`docs/api.md`](https://github.com/xiant10/t10-modkit/blob/main/docs/api.md). `make test-template` builds a scaffolded module instead of testing a kit, whose tests now run in t10-modkit's CI.
+- **`make check` warns on a module behind the template's t10-modkit tag**, naming the module, both versions and the command that moves it.
+
+**In a project,** for each `modules/<id>/src/` made before this release:
+
+1. Change every import of `t10kit/...` to `github.com/xiant10/t10-modkit/...` (`t10kit/module` becomes `github.com/xiant10/t10-modkit/module`).
+2. In its `go.mod`: set `go 1.27.4`, remove the `replace t10kit => ...` line and `t10kit v0.0.0` from `require`, then run `go get github.com/xiant10/t10-modkit@v0.1.0 && go mod tidy` in the folder.
+3. In its `Dockerfile`: use `golang:1.27.4-alpine`, delete `COPY --from=kit . /kit/`, delete each `go mod edit -replace t10kit=/kit &&`, and add `RUN apk add --no-cache git` before `COPY go.mod go.sum ./` (or take the scaffold's, `platform/scripts/scaffold/go/Dockerfile`, keeping the module's own lines).
+4. A module that set the menu's `Lang`, `Here`, `LanguageAction` or `ThemeAction` on a `frame.Menu` itself drops them.
+
+Then `make verify`.
+
 ## v0.10.1 (Nov 21, 2026)
 
 - **`make test-template` passes in a project with encrypted secrets.** Its throwaway copies kept the project's `site/secrets/.sops.yaml`, so they encrypted a server environment's secrets and five tests failed reading `site/secrets/prod.env` (from kuaidan-sales, whose CI failed once it committed `.sops.yaml`).
