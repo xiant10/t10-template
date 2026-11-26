@@ -1,6 +1,6 @@
 // __service__ is the __id__ module's service. What every module answers (/readyz, /v1/module,
-// /v1/access and its tools at /mcp) comes from the template's kit (t10kit/module, kit/go/ in
-// the project); this module adds its tools (tools.go) and its web app (server.go). Its settings
+// /v1/access and its tools at /mcp) comes from t10-modkit's module package, at the tag the
+// template pins (T10_MODKIT); this module adds its tools (tools.go) and its web app (server.go). Its settings
 // come from the project: the standard ones every module gets, and modules/__id__/config/.
 // Workbench's bell asks every module for notifications; set Module.Notifier once it has some.
 package main
@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"t10kit/module"
+	"github.com/xiant10/t10-modkit/module"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

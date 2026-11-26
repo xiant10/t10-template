@@ -15,7 +15,7 @@ The rule: **a module is proven alone before it meets the foundation.** A failure
 
 ## Gate 1: unit
 
-`make test MODULE=<id>` builds the module's Dockerfile `test` stage, which checks `gofmt` and `go vet` and compiles the tests with the image's own toolchain, then runs it as a container beside a throwaway Postgres, with `TEST_DATABASE_URL` naming a database of the module's own, made empty for the run. It prints what didn't pass and how many tests skipped, so a database test that skips can't go unnoticed. A test that needs the database gets it from `testDB(t)` in the scaffold's `server_test.go`, which skips where `TEST_DATABASE_URL` isn't set, such as `go test` on this machine. Its tests use `module.Fake` for auth-server, so they need no stack. What every module answers is tested in the kit (`kit/go/module`); a module's tests cover its own tools and API.
+`make test MODULE=<id>` builds the module's Dockerfile `test` stage, which checks `gofmt` and `go vet` and compiles the tests with the image's own toolchain, then runs it as a container beside a throwaway Postgres, with `TEST_DATABASE_URL` naming a database of the module's own, made empty for the run. It prints what didn't pass and how many tests skipped, so a database test that skips can't go unnoticed. A test that needs the database gets it from `testDB(t)` in the scaffold's `server_test.go`, which skips where `TEST_DATABASE_URL` isn't set, such as `go test` on this machine. Its tests use `module.Fake` for auth-server, so they need no stack. What every module answers is tested in t10-modkit's `module` package; a module's tests cover its own tools and API.
 
 ## Gate 2: alone
 

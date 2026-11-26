@@ -157,9 +157,8 @@ lint: ## Lint the template's Python and shell scripts, in Docker
 	@docker run --rm -v "$(CURDIR):/w" -w /w $(RUFF) check --quiet platform/scripts platform/tests
 	@docker run --rm -v "$(CURDIR):/w" -w /w $(SHELLCHECK) -S warning platform/scripts/*.sh platform/foundation/*.sh
 
-test-template: ## The template's own tests: its scripts (platform/tests/) and its Go kit (platform/kit/go/), no stack needed
+test-template: ## The template's own tests (platform/tests/), with a scaffolded module built from its own folder; no stack needed
 	@$(PY) platform/tests/test_template.py $(if $(V),-v)
-	@docker build -q platform/kit/go >/dev/null && echo "platform/kit/go: gofmt, vet and tests passed"
 
 # A project's own commands, and each module's: the project's files, which template updates leave alone.
 -include site/project.mk $(wildcard modules/*/module.mk)

@@ -104,10 +104,18 @@ SCAFFOLDS = pathlib.Path(__file__).resolve().parent / "scaffold"
 FIRST_PORT = 18100
 
 
+def modkit_version():
+    """The t10-modkit tag the template pins, T10_MODKIT in platform/foundation/versions.env."""
+    version = lib.read_env(lib.PLATFORM / "foundation" / "versions.env").get("T10_MODKIT", "")
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", version):
+        sys.exit(f"platform/foundation/versions.env: T10_MODKIT={version!r} isn't a release tag such as v0.1.0")
+    return version
+
+
 def scaffold_src(dest, names, scaffold):
     """modules/<id>/src/ from platform/scripts/scaffold/<scaffold>/, with __id__ and the like in names and files filled in."""
     tokens = {"__service__": names["service"], "__ID__": names["U"], "__Id__": names["Id"], "__id__": names["id"],
-              "__port__": str(names["port"])}
+              "__port__": str(names["port"]), "__modkit__": modkit_version()}
 
     def sub(text):
         for k, v in tokens.items():

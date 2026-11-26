@@ -1,16 +1,17 @@
-# The module's image. The template's kit comes in as the build context `kit` (Compose and the
-# scripts pass platform/kit/go/), and the build points go.mod's `replace t10kit` at it, so this
-# file doesn't depend on where the module or the kit sit in the project.
-FROM golang:1.27.3-alpine AS build
+# The module's image, from this folder alone: what every module answers comes from t10-modkit, a
+# public module go.mod requires by tag (T10_MODKIT in platform/foundation/versions.env).
+FROM golang:1.27.4-alpine AS build
 WORKDIR /src
 ENV CGO_ENABLED=0
-COPY --from=kit . /kit/
+# git lets go fetch a tag from its repository when Go's proxy hasn't got it yet, as for a while
+# after a release; go.sum still pins every module's hash.
+RUN apk add --no-cache git
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod edit -replace t10kit=/kit && go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 # Go's module and build caches persist between builds, so a rebuild compiles only what changed.
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-	go mod edit -replace t10kit=/kit && go build -trimpath -ldflags="-s -w" -o /out/__service__ .
+	go build -trimpath -ldflags="-s -w" -o /out/__service__ .
 
 # `make test` builds this stage, then runs it beside a throwaway Postgres with TEST_DATABASE_URL
 # set (the label says it's to be run). Building it checks gofmt and vet and compiles each
@@ -20,7 +21,7 @@ FROM build AS test
 LABEL t10.test=run
 RUN test -z "$(gofmt -l .)" || { echo "not gofmt'd:"; gofmt -l .; exit 1; }
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-	go mod edit -replace t10kit=/kit && go vet ./... && \
+	go vet ./... && \
 	go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./... >/tests && \
 	while read -r dir; do go test -c -o "$dir/.t10.test" "$dir" || exit 1; done </tests
 COPY <<'EOF' /usr/local/bin/t10-test

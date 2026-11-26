@@ -9,7 +9,7 @@ contract can be checked before it joins the stack (docs/integration.md, gate 2).
 It runs as its own Compose project, <PROJECT_NAME>-alone-<id>, written to generated/alone/<id>/,
 on 127.0.0.1 at a port free when it starts (kept in generated/alone/<id>/port, and printed),
 so it runs beside the full stack and any other project's. The service gets
-T10_STANDALONE=1 and no AUTH_ISSUER: the kit (t10kit/module.NewAccess) then accepts "Bearer
+T10_STANDALONE=1 and no AUTH_ISSUER: t10-modkit's module.NewAccess then accepts "Bearer
 person" as a tenant admin and "Bearer agent" as an agent with the actions its catalog grants.
 Its database password is throwaway; nothing here is a real secret.
 """
@@ -100,7 +100,7 @@ def write(mid, at=0):
                      "healthcheck": {"test": ["CMD-SHELL", "pg_isready -h localhost -U t10 -d auth"], "interval": "2s", "retries": 30}},
         service: {
             "image": f"{service}:dev",
-            "build": {"context": str(src), "additional_contexts": {"kit": str(lib.PLATFORM / "kit" / "go")}},
+            "build": str(src),
             "env_file": f"./{service}.env",
             "environment": {"T10_STANDALONE": "1", f"{u}_PUBLIC_URL": f"http://127.0.0.1:{at}",
                             f"{u}_SESSION_KEY": B64_KEY, "AUTH_WEB_CLIENT_SECRET": PASSWORD, **extra_env},

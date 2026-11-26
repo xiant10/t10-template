@@ -154,10 +154,8 @@ def compose(m, name, in_project, src=None, configured=(), init_db=None):
     init_db: relative path in the bundle of the module's own init-db.sh, if it has one."""
     mid, u, service, port = m["MODULE_ID"], upper(m["MODULE_ID"]), m["SERVICE"], m["PORT"]
     db = mid.replace("-", "_")
+    # Its image builds from its own folder: t10-modkit comes from its tag, not from the project.
     built = {"image": f"{service}:dev", "build": f"../../modules/{mid}/src"}
-    if in_project:
-        # Code in the project builds with the template's kit, platform/kit/go/ (its go.mod's replace).
-        built["build"] = {"context": f"../../modules/{mid}/src", "additional_contexts": {"kit": "../../platform/kit/go"}}
     more = services(m)[1:]
     if name == "local":
         svc = {"ports": [f"127.0.0.1:${{{u}_PORT}}:{port}"]}

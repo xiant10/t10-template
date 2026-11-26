@@ -3,9 +3,6 @@
 services:
   t10-crm:
     image: t10-crm:dev
-    build:
-      context: ../../modules/crm/src
-      additional_contexts:
-        kit: ../../platform/kit/go
+    build: ../../modules/crm/src
     ports:
       - "127.0.0.1:${CRM_PORT}:18100"

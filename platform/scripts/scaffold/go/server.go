@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"t10kit/module"
+	"github.com/xiant10/t10-modkit/module"
 )
 
 // Server is the module's HTTP API: what every module answers, from module.Module, and its own
