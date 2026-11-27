@@ -4,6 +4,19 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.13.0 (Nov 27, 2026)
+
+- **`T10_MODKIT` is `v0.3.0`**, with the ontology's review fixes:
+  - an action's `Idempotency-Key` is claimed before the action runs, so two requests with one key never both apply it: the second answers 409 `request_in_progress`. A key covers the module, so the same key on another action is 409 `idempotency_conflict`;
+  - a draft keeps its object's revision, and confirming it after the object changed is 409 `stale_revision`, with the draft left open;
+  - an undo that was interrupted can be run again;
+  - an apply or undo answer leaves out the object when its descriptor can't be read, and `AddObject` refuses a sensitive or undeclared `DefaultSort`.
+
+  `undo.Postgres` and `proposals.Postgres` gain migrations, which run with the module's own on start.
+- **The scaffold's `ontology.conformance.json` names `agent_read_only`** (`agent-read`, an agent whose grant holds only `<id>:read`), so `make contract` checks that `_propose` needs `<id>:propose`. Without it, that check skips.
+
+**In a project:** in each module in `modules/<id>/src/` that serves an ontology, run `go get github.com/xiant10/t10-modkit@v0.3.0 && go mod tidy`, and add `"agent_read_only": "agent-read"` to the `tokens` in its `ontology.conformance.json`. A module with an `undoable` action must write its compensating change at most once per `Undoing.ID` in `Revert`, and answer `ontology.ErrUndone` when it already did. A module that implements `ontology.UndoStore` or `ProposalStore` itself, instead of using `undo` and `proposals`, follows the new methods in t10-modkit's v0.3.0 release notes. Check with `make test MODULE=<id>` and `make contract MODULE=<id>`. A module without an ontology needs nothing; `make check` warns while it requires an older t10-modkit.
+
 ## v0.12.1 (Nov 27, 2026)
 
 - **`T10_MODKIT` is `v0.2.1`**, which fixes a crash in `v0.2.0`: a module running with auth-server panicked on every person's request, because `module.Auth` read the agent of a person's own token. `make verify`'s smoke test found it in CI. `v0.2.1` changes nothing else.
