@@ -1,19 +1,23 @@
 /**
- * Black-box tests of the ontology contract (README.md). It speaks only HTTP to a module, so a module in any language can
- * run it, with three test tokens and a config naming the module's own fixtures:
+ * Black-box tests of the ontology contract (README.md). It speaks only HTTP and MCP to a module, so a module in any
+ * language can run it, with three test tokens and a config naming the module's own fixtures:
  *
  *   node contracts/ontology/conformance.ts <module URL> <config.json>
  *   node contracts/ontology/conformance.ts --self-test   # against t10-modkit's stub, unbroken and broken each way
  *
  * The config, such as testdata/stub.json, gives:
  *   tokens: in_scope (a person who sees `visible`), out_of_scope (a person in the same tenant who doesn't), agent (a
- *     delegated token for in_scope's person);
+ *     delegated token for in_scope's person whose grant holds <prefix>:read and <prefix>:propose), and optionally
+ *     agent_read_only (one whose grant holds only <prefix>:read), without which the grant check is skipped;
  *   visible: a reference in_scope sees;
  *   search: {type, body, limit, expect}: a search in_scope sees `expect` objects of, paged by `limit`;
  *   forbidden, wrong_state, apply: {action, object, params}: an action in_scope sees but may not take, one on an
  *     object in a state that refuses it, and a repeatable one;
  *   idempotent: an idempotent action; undo: an undo action, with `dependent`, an action that then depends on it. A
- *     module with none leaves them out, and those checks are skipped.
+ *     module with none leaves them out, and those checks are skipped;
+ *   sensitive: optionally, a reference in_scope sees with a value in a sensitive property, for the masking checks.
+ *     Without it the suite looks for one with in_scope's search of each type that has a sensitive property;
+ *   mcp: optionally, the path of the module's MCP endpoint, /mcp when left out.
  * An object may be "$first:<type>", the first object in_scope's search finds, or "$newest:<type>", the same, read
  * when it's used. The self-test needs Go and the t10-modkit checkout beside this workspace.
  */
@@ -29,7 +33,7 @@ import { checkDescriptor } from "./descriptor.ts";
 type Json = any;
 type ActionCase = { action: string; object?: string; params: Record<string, Json> };
 export type Config = {
-	tokens: { in_scope: string; out_of_scope: string; agent: string };
+	tokens: { in_scope: string; out_of_scope: string; agent: string; agent_read_only?: string };
 	visible: string;
 	search: { type: string; body: Record<string, Json>; limit: number; expect: number };
 	forbidden: ActionCase;
@@ -37,6 +41,8 @@ export type Config = {
 	apply: ActionCase;
 	idempotent?: ActionCase;
 	undo?: ActionCase & { dependent: ActionCase };
+	sensitive?: string;
+	mcp?: string;
 };
 
 class Failure extends Error {}
@@ -279,6 +285,156 @@ export async function runSuite(base: string, config: Config, log: (line: string)
 		const a = await call("GET", "/v1/proposals", person);
 		must(a.status === 200 && Array.isArray(a.body?.proposals), `answered ${a.status} ${a.text}`);
 	});
+
+	// The generated tools, over MCP, as an agent calls them.
+	const mcpPath = config.mcp ?? "/mcp";
+	const prefix: string = manifest?.action_prefix ?? descriptor?.module;
+	let rpcID = 0;
+	type ToolAnswer = { status: number; error?: string; data?: Json; text: string };
+	const listTools = async (token?: string): Promise<Json[]> => {
+		const a = await call("POST", mcpPath, token, { jsonrpc: "2.0", id: ++rpcID, method: "tools/list" });
+		must(a.status === 200 && Array.isArray(a.body?.result?.tools), `tools/list answered ${a.status} ${a.text.slice(0, 200)}`);
+		return a.body.result.tools;
+	};
+	// A tool's answer: its data from inside <module_record>, or its error code (the HTTP one for a refused call).
+	const tool = async (name: string, args: Json, token = agent): Promise<ToolAnswer> => {
+		const a = await call("POST", mcpPath, token, { jsonrpc: "2.0", id: ++rpcID, method: "tools/call", params: { name, arguments: args } });
+		if (a.status !== 200) return { status: a.status, error: a.body?.error ?? String(a.status), text: a.text };
+		const result = a.body?.result;
+		const text: string = result?.content?.[0]?.text ?? "";
+		if (result?.isError) return { status: 200, error: text.split(/[:\s]/)[0], text };
+		const m = text.match(/^<module_record module="([a-z][a-z0-9_]*)">\n([\s\S]*)\n<\/module_record>$/);
+		if (!m) return { status: 200, text };
+		let data: Json;
+		try {
+			data = JSON.parse(m[2]);
+		} catch {
+			return { status: 200, text };
+		}
+		return { status: 200, data, text };
+	};
+	const toolData = async (name: string, args: Json, token = agent): Promise<Json> => {
+		const a = await tool(name, args, token);
+		must(a.data !== undefined, `${name} answered ${a.error ? `error ${a.error}` : `no data: ${a.text.slice(0, 200)}`}`);
+		return a.data;
+	};
+	const sensitiveOf = (type: string): string[] => {
+		const props = { ...(descriptor?.object_types?.[type]?.properties ?? {}), ...(descriptor?.tenant?.object_types?.[type]?.properties ?? {}) };
+		return Object.entries(props).filter(([, p]: [string, Json]) => p?.sensitivity).map(([k]) => k);
+	};
+	// An object in_scope sees with a value in a sensitive property, as in_scope reads it.
+	let sensitiveObject: Json | null | undefined;
+	const findSensitive = async (): Promise<Json | null> => {
+		if (sensitiveObject !== undefined) return sensitiveObject;
+		const candidates: string[] = [];
+		if (config.sensitive) candidates.push(config.sensitive);
+		else
+			for (const type of Object.keys(descriptor?.object_types ?? {}).filter((t) => sensitiveOf(t).length > 0)) {
+				const found = await call("POST", `/v1/objects/${encodeURIComponent(type)}/search`, person, { limit: 20 });
+				if (found.status === 200) candidates.push(...found.body.objects.map((o: Json) => o.ref));
+			}
+		sensitiveObject = null;
+		for (const ref of candidates) {
+			const got = await call("GET", objectPath(ref), person);
+			must(got.status === 200, `${ref} isn't visible to in_scope (${got.status})`);
+			const props = sensitiveOf(got.body.type).filter((p) => got.body.properties?.[p] != null);
+			if (props.length > 0) {
+				sensitiveObject = { ...got.body, sensitive: props };
+				break;
+			}
+		}
+		return sensitiveObject;
+	};
+	const declaresSensitive = () => Object.keys(descriptor?.object_types ?? {}).some((t) => sensitiveOf(t).length > 0);
+	const generatedNames = () => {
+		const names = ["describe", "search", "get", "propose"].map((t) => `${prefix}_${t}`);
+		if (Object.values(descriptor?.action_types ?? {}).some((a: Json) => a.agent === "undoable")) names.push(`${prefix}_act`);
+		return names;
+	};
+
+	await check("tools are generated and listed the same with no token and an agent's", async () => {
+		const anonymous = await listTools();
+		const names = anonymous.map((t) => t.name);
+		for (const name of generatedNames()) must(names.includes(name), `tools/list has no ${name}`);
+		if (!generatedNames().includes(`${prefix}_act`)) must(!names.includes(`${prefix}_act`), `${prefix}_act is listed with no undoable action`);
+		const withToken = await listTools(agent);
+		must(JSON.stringify(withToken) === JSON.stringify(anonymous), "the list with an agent's token differs from the one with no token");
+	});
+
+	await check("tool results are marked as data", async () => {
+		const a = await tool(`${prefix}_get`, { ref: config.visible });
+		must(a.data !== undefined && a.data.ref === config.visible, `${prefix}_get answered outside <module_record>: ${a.text.slice(0, 200)}`);
+	});
+
+	await check("describe leaves out the actions agents may not take", async () => {
+		const d = await toolData(`${prefix}_describe`, {});
+		for (const [name, a] of Object.entries(d.action_types ?? {}) as [string, Json][]) must(a.agent !== "never", `it lists ${name}, whose tier is never`);
+		for (const name of descriptor.restricted ?? []) must(!(name in (d.action_types ?? {})), `it lists ${name}, which is restricted`);
+	});
+
+	const never = Object.entries(descriptor?.action_types ?? {}).find(([, a]: [string, Json]) => a.agent === "never");
+	await check(
+		"agents can't draft an action whose tier is never",
+		async () => {
+			const [name, a] = never as [string, Json];
+			let object: string | undefined;
+			if (a.on) {
+				const found = await call("POST", `/v1/objects/${encodeURIComponent(a.on)}/search`, person, { limit: 1 });
+				object = found.status === 200 ? found.body.objects[0]?.ref : undefined;
+			}
+			const before = await call("GET", "/v1/proposals", person);
+			const got = await tool(`${prefix}_propose`, { action: name, ...(object ? { object } : {}), params: {} });
+			must(got.error === "not_allowed_for_agents", `${prefix}_propose of ${name} answered ${got.error ?? "a draft"}`);
+			const after = await call("GET", "/v1/proposals", person);
+			must(after.body?.proposals?.length === before.body?.proposals?.length, "a draft was stored");
+		},
+		never ? undefined : "the descriptor declares no action with tier never",
+	);
+
+	await check(
+		"agents get every sensitive value masked",
+		async () => {
+			const o = await findSensitive();
+			must(o, "no object in_scope sees has a value in a sensitive property: name one as `sensitive` in the config");
+			const seen = await toolData(`${prefix}_get`, { ref: o.ref });
+			for (const p of o.sensitive) {
+				const v = seen.properties?.[p];
+				must(v == null || JSON.stringify(v) !== JSON.stringify(o.properties[p]), `${prefix}_get answers ${o.type}.${p} unmasked`);
+			}
+			const titleProp = descriptor.object_types[o.type]?.title;
+			if (o.sensitive.includes(titleProp)) must(seen.title !== o.title, `${prefix}_get answers ${o.type}'s title, ${titleProp}, unmasked`);
+		},
+		declaresSensitive() ? undefined : "the descriptor declares no sensitive property",
+	);
+
+	await check(
+		"agents can't filter or sort on a sensitive property",
+		async () => {
+			const o = await findSensitive();
+			const type: string = o?.type ?? Object.keys(descriptor.object_types).find((t) => sensitiveOf(t).length > 0);
+			const p: string = o?.sensitive[0] ?? sensitiveOf(type)[0];
+			const value = o?.properties?.[p] ?? "x";
+			const filtered = await tool(`${prefix}_search`, { type, filter: { property: p, op: "eq", value } });
+			must(filtered.error === "filter_not_allowed", `a filter on ${type}.${p} answered ${filtered.error ?? "results"}`);
+			const sorted = await tool(`${prefix}_search`, { type, sort: { property: p } });
+			must(sorted.error === "filter_not_allowed", `a sort on ${type}.${p} answered ${sorted.error ?? "results"}`);
+		},
+		declaresSensitive() ? undefined : "the descriptor declares no sensitive property",
+	);
+
+	await check(
+		"each tool needs its grant action",
+		async () => {
+			const readOnly = config.tokens.agent_read_only as string;
+			await toolData(`${prefix}_get`, { ref: config.visible }, readOnly);
+			const before = await call("GET", "/v1/proposals", person);
+			const got = await tool(`${prefix}_propose`, { action: config.apply.action, object: await resolveRef(config.apply.object), params: (await body(config.apply)).params }, readOnly);
+			must(got.error === "forbidden" || got.status === 403, `${prefix}_propose with only ${prefix}:read answered ${got.error ?? "a draft"}`);
+			const after = await call("GET", "/v1/proposals", person);
+			must(after.body?.proposals?.length === before.body?.proposals?.length, "a draft was stored");
+		},
+		config.tokens.agent_read_only ? undefined : "the config names no tokens.agent_read_only",
+	);
 	return failed;
 }
 
@@ -304,6 +460,12 @@ const breaks: Record<string, string> = {
 	label: "descriptor meets the schema",
 	events: "descriptor's events",
 	interface: "descriptor meets the schema",
+	"tools-tenant": "tools are generated and listed the same",
+	"agent-never": "describe leaves out the actions agents may not take",
+	"agent-mask": "agents get every sensitive value masked",
+	"agent-filter": "agents can't filter or sort on a sensitive property",
+	"agent-grant": "each tool needs its grant action",
+	"agent-data": "tool results are marked as data",
 };
 
 async function freePort(): Promise<number> {
