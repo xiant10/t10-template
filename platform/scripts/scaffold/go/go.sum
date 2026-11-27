@@ -40,8 +40,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/xiant10/t10-modkit v0.3.0 h1:Yae9pJoZ5XlrbjmGiDQpxWLrTP/HKTGkJrk78A9e0EY=
-github.com/xiant10/t10-modkit v0.3.0/go.mod h1:4vtrV5Z6P7hJLukI5YNMqY6YHkSkZ52moMSeooV0Qrs=
+github.com/xiant10/t10-modkit v0.3.1 h1:05cKf8j+cksWrvPoXqv1omaYpq6w2rXAgtO1+gdR5zY=
+github.com/xiant10/t10-modkit v0.3.1/go.mod h1:4vtrV5Z6P7hJLukI5YNMqY6YHkSkZ52moMSeooV0Qrs=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 h1:LxwW/9ctSCv+QkE/cLR7M91ZIkXNMqJtEMi1vCw9U8s=
