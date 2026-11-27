@@ -7,8 +7,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xiant10/t10-modkit/module"
+	"github.com/xiant10/t10-modkit/ontology"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -75,6 +77,35 @@ func TestOntology(t *testing.T) {
 	}
 	if code, body := serve(t, "POST", "/v1/actions/note.edit/apply", "person", `{"object":"__id__:note:n_welcome","revision":1,"params":{"title":"Hello"}}`); code != 200 {
 		t.Errorf("edit: %d %v", code, body)
+	}
+}
+
+// A page starts after its cursor's sort value and ID, so a note edited between pages, which
+// moves to the top, doesn't make the next page repeat the first.
+func TestSearchPagesByCursor(t *testing.T) {
+	ctx := context.Background()
+	store := newNotes(true)
+	newest := ontology.Query{Sort: ontology.Sort{Property: "updated_at", Desc: true}, Limit: 2}
+	first, err := store.search(ctx, admin, newest)
+	if err != nil || len(first) != 3 {
+		t.Fatalf("first page: %v %v", first, err)
+	}
+	last := first[1]
+	if err := store.update(admin, last.ID, last.Revision, func(n *note) { n.Title = "Edited" }); err != nil {
+		t.Fatal(err)
+	}
+	newest.After = &ontology.Position{Value: last.Updated.Truncate(time.Second), ID: last.ID}
+	next, err := store.search(ctx, admin, newest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range next {
+		if r.ID == first[0].ID || r.ID == first[1].ID {
+			t.Errorf("the next page repeats %s: %v", r.ID, next)
+		}
+	}
+	if len(next) != 2 {
+		t.Errorf("the next page: want the 2 older notes, have %v", next)
 	}
 }
 

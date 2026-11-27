@@ -4,6 +4,12 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.12.1 (unreleased)
+
+- **The scaffold's example pages by the cursor's sort value and ID**, not by finding the cursor's row again. A note that was edited, archived or hidden between pages made the next page start from the top and repeat the first. The comment shows the same condition in SQL. `TestSearchPagesByCursor` covers it.
+
+**In a project:** nothing is required. A module whose search was copied from the scaffold's before this release should page the same way.
+
 ## v0.12.0 (Nov 26, 2026)
 
 Modules are ontology-first: a new module declares its records and actions as an ontology, which t10-modkit serves to apps and agents, and the gates check it against the t10 workspace's ontology contract.
