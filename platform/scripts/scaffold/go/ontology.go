@@ -166,25 +166,38 @@ func (n *notes) search(_ context.Context, c module.Caller, q ontology.Query) ([]
 			out = append(out, *r)
 		}
 	}
+	// The sort value as a string that orders as the value does. Times are to the
+	// second, as View answers them, so a page's cursor holds the same value.
 	key := func(r note) string {
 		switch q.Sort.Property {
 		case "title":
 			return r.Title
+		case "body":
+			return r.Body
 		case "state":
 			return r.State
+		case "shared":
+			return str(r.Shared)
+		case "updated_at":
+			return r.Updated.UTC().Format(time.RFC3339)
 		}
-		return r.Updated.Format(time.RFC3339Nano)
+		return ""
 	}
-	slices.SortFunc(out, func(a, b note) int {
-		d := cmp.Compare(key(a), key(b))
+	order := func(aKey, aID, bKey, bID string) int {
+		d := cmp.Compare(aKey, bKey)
 		if q.Sort.Desc {
 			d = -d
 		}
-		return cmp.Or(d, cmp.Compare(a.ID, b.ID))
-	})
+		return cmp.Or(d, cmp.Compare(aID, bID))
+	}
+	slices.SortFunc(out, func(a, b note) int { return order(key(a), a.ID, key(b), b.ID) })
+	// A page starts after the cursor's sort value and ID, not after a row: that
+	// row may since have changed, gone, or left the caller's scope. A store
+	// does the same in SQL: WHERE sort > $value OR (sort = $value AND id > $id),
+	// with < for a descending sort.
 	if q.After != nil {
-		i := slices.IndexFunc(out, func(r note) bool { return r.ID == q.After.ID })
-		out = out[i+1:]
+		after := str(q.After.Value)
+		out = slices.DeleteFunc(out, func(r note) bool { return order(key(r), r.ID, after, q.After.ID) <= 0 })
 	}
 	return out[:min(len(out), q.Limit+1)], nil
 }
