@@ -1,5 +1,5 @@
 {
-  "tokens": { "in_scope": "person", "out_of_scope": "person:", "agent": "agent" },
+  "tokens": { "in_scope": "person", "out_of_scope": "person:", "agent": "agent", "agent_read_only": "agent-read" },
   "visible": "__id__:note:n_welcome",
   "search": { "type": "note", "body": { "filter": { "property": "state", "op": "eq", "value": "open" } }, "limit": 2, "expect": 3 },
   "forbidden": { "action": "note.archive", "object": "__id__:note:n_welcome", "params": {} },
