@@ -1,0 +1,1 @@
+contracts/ontology/ at the t10 workspace's commit bac02dedc368aaa38080508fd3af61bfe963c145 (2026-11-26): conformance.ts, descriptor.ts, descriptor.schema.json and interfaces.json, copied unchanged. make contract runs conformance.ts; make test-template runs descriptor.ts on fixtures/.

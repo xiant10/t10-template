@@ -156,6 +156,9 @@ def main(argv):
     if not re.fullmatch(r"[a-z][a-z0-9-]*", service):
         sys.exit(f"{service}: a SERVICE is lowercase letters, digits and dashes, starting with a letter")
     in_project = not repo
+    if in_project and "-" in mid:
+        sys.exit(f"{mid}: the scaffold serves an ontology, whose module name and action prefix are the ID, "
+                 "and those take no dashes: use letters and digits only")
     scaffold = SCAFFOLDS / (os.environ.get("SCAFFOLD") or "go")
     if in_project and not (scaffold / "module" / "module.env").exists():
         have = sorted(d.name for d in SCAFFOLDS.iterdir() if (d / "module" / "module.env").exists())
@@ -176,7 +179,7 @@ def main(argv):
         scaffold_src(src, names, scaffold)
         print(f"""made modules/{mid}/, its deployment and code in modules/{mid}/src/ ({service}, port {port}). Next:
   1. make test MODULE={mid} && make up && make smoke: it runs as it is.
-  2. Make it yours: its tools in modules/{mid}/src/tools.go, its permissions in modules/{mid}/src/module/ (platform/docs/module.md).
+  2. Make it yours: its records and actions in modules/{mid}/src/ontology.go, its tools in tools.go, its permissions in src/module/ (platform/docs/module.md).
   3. After each change, make reload MODULE={mid}; before a server, make release MODULE={mid}.""")
     else:
         print(f"""made modules/{mid}/ ({service}, port {port}). Next:

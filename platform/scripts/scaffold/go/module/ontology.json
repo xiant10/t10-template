@@ -1,0 +1,113 @@
+{
+  "module": "__id__",
+  "version": 1,
+  "object_types": {
+    "note": {
+      "label": "Note",
+      "label_zh": "笔记",
+      "description": "A note someone in the company wrote.",
+      "title": "title",
+      "implements": [],
+      "properties": {
+        "body": {
+          "type": "text",
+          "name": "Text",
+          "name_zh": "内容"
+        },
+        "shared": {
+          "type": "boolean",
+          "name": "Shared",
+          "name_zh": "共享"
+        },
+        "state": {
+          "type": "enum",
+          "name": "State",
+          "name_zh": "状态",
+          "values": [
+            "open",
+            "archived"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "name": "Title",
+          "name_zh": "标题"
+        },
+        "updated_at": {
+          "type": "timestamp",
+          "name": "Updated",
+          "name_zh": "更新时间"
+        }
+      },
+      "links": {}
+    }
+  },
+  "action_types": {
+    "note.archive": {
+      "label": "Archive",
+      "label_zh": "归档",
+      "description": "Archive an open note. Only its author may.",
+      "on": "note",
+      "params": {},
+      "permission": "__id__:use",
+      "idempotent": false,
+      "undo": false,
+      "agent": "propose"
+    },
+    "note.create": {
+      "label": "New note",
+      "label_zh": "新建笔记",
+      "description": "Write a new note.",
+      "params": {
+        "body": {
+          "type": "text",
+          "name": "Text",
+          "name_zh": "内容"
+        },
+        "shared": {
+          "type": "boolean",
+          "name": "Shared",
+          "name_zh": "共享"
+        },
+        "title": {
+          "type": "string",
+          "name": "Title",
+          "name_zh": "标题",
+          "required": true
+        }
+      },
+      "permission": "__id__:use",
+      "idempotent": false,
+      "undo": false,
+      "agent": "propose"
+    },
+    "note.edit": {
+      "label": "Edit",
+      "label_zh": "编辑",
+      "description": "Change an open note's title or text.",
+      "on": "note",
+      "params": {
+        "body": {
+          "type": "text",
+          "name": "Text",
+          "name_zh": "内容"
+        },
+        "title": {
+          "type": "string",
+          "name": "Title",
+          "name_zh": "标题"
+        }
+      },
+      "permission": "__id__:use",
+      "idempotent": false,
+      "undo": false,
+      "agent": "propose"
+    }
+  },
+  "restricted": [],
+  "interfaces": [],
+  "events": {},
+  "tenant": {
+    "revision": 0
+  }
+}

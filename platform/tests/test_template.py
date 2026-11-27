@@ -283,6 +283,8 @@ class NewModule(TestCase):
     def test_refuses_bad_or_existing(self):
         r = self.p.run(*PY, "platform/scripts/new-module.py", "Bad_ID", check=False)
         self.assertIn("an ID is lowercase", r.stderr)
+        r = self.p.run(*PY, "platform/scripts/new-module.py", "my-crm", check=False)
+        self.assertIn("take no dashes", r.stderr)
         self.p.new_module("crm")
         r = self.p.run(*PY, "platform/scripts/new-module.py", "crm", check=False)
         self.assertIn("already exists", r.stderr)
@@ -456,7 +458,7 @@ class StandardWiring(TestCase):
         doc["agent"]["actions"].append("crm:write")
         catalog.write_text(json.dumps(doc))
         bundle = self.p.render()
-        self.assertIn("crm:read,crm:write", (bundle / "modules.env").read_text())
+        self.assertIn("crm:read,crm:propose,crm:write", (bundle / "modules.env").read_text())
         agent = json.loads((bundle / "modules/crm/pack/agents/crm/agent.json").read_text())
         self.assertIn("crm:write", agent["grants"]["actions"].split(","))
         runtimes = {r["name"]: r for r in json.loads((bundle / "clients.yaml").read_text().split("\n", 1)[1])["runtimes"]}
@@ -497,6 +499,25 @@ class StandardWiring(TestCase):
         self.p.secrets()
         r = self.p.run(*PY, "platform/scripts/check.py", check=False, SCRIPTED="1")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_check_needs_the_generated_tools_grant_actions(self):
+        """Each tool the ontology generates needs its grant action in the catalog's agent block:
+        crm_act, which an undoable action brings, needs crm:act."""
+        self.p.secrets()
+        r = self.p.run(*PY, "platform/scripts/check.py", check=False, SCRIPTED="1")
+        self.assertIn("ok   crm: its generated tool crm_propose needs crm:propose", r.stdout)
+        self.assertNotIn("crm_act", r.stdout)
+        core = json.loads(self.p.read("modules/crm/src/module/ontology.json"))
+        core["action_types"]["note.edit"]["agent"] = "undoable"
+        self.p.write("modules/crm/src/module/ontology.json", json.dumps(core))
+        r = self.p.run(*PY, "platform/scripts/check.py", check=False, SCRIPTED="1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("FAIL crm: its generated tool crm_act needs crm:act, in its catalog's agent block", r.stdout)
+        catalog = self.p.read("modules/crm/src/module/permissions/crm.yaml")
+        self.p.write("modules/crm/src/module/permissions/crm.yaml", catalog.replace('"crm:propose"]', '"crm:propose", "crm:act"]'))
+        r = self.p.run(*PY, "platform/scripts/check.py", check=False, SCRIPTED="1")
+        self.assertIn("ok   crm: its generated tool crm_act needs crm:act", r.stdout)
 
 
 @unittest.skipUnless(DOCKER, "needs docker, for docker compose config")
@@ -655,6 +676,24 @@ class Alone(TestCase):
         r = self.p.run(*PY, "platform/scripts/contract.py", "crm", check=False)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("crm_whoami: an agent with the catalog's actions may call it", r.stdout)
+        self.assertIn("ok   ontology: search applies scope before sorting and paging", r.stdout)
+        self.assertIn("ok   the ontology conformance suite passes", r.stdout)
+
+    def test_a_search_that_ignores_scope_fails(self):
+        self.p.write("site/config/settings.env", f"PROJECT_NAME=test{os.getpid()}\nFOUNDATION=\n")
+        self.p.new_module("crm")
+        code = self.p.dir / "modules/crm/src/ontology.go"
+        code.write_text(code.read_text().replace("if visible(c, *r) && (q.Filter", "if canUse(c) && (q.Filter"))
+        self.addCleanup(self.p.run, *PY, "platform/scripts/alone.py", "crm", "down", check=False)
+        self.p.run(*PY, "platform/scripts/alone.py", "crm", "up", QUIET="1")
+        r = self.p.run(*PY, "platform/scripts/contract.py", "crm", check=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("FAIL ontology: search applies scope before sorting and paging", r.stdout)
+
+    def test_a_module_without_an_ontology_skips_the_suite(self):
+        r = self.p.run(*PY, "-c", "import sys; sys.path.insert(0, 'platform/scripts'); import contract, pathlib\n"
+                       "contract.http = lambda *a, **k: (200, {'features': []})\ncontract.ontology('crm', pathlib.Path('.'), 'http://x')")
+        self.assertIn("skip its manifest doesn't list the ontology feature", r.stdout)
 
     def test_a_broken_pack_fails(self):
         self.p.new_module("crm")
@@ -663,6 +702,81 @@ class Alone(TestCase):
         r = self.p.run(*PY, "platform/scripts/contract.py", "crm", "http://127.0.0.1:9", check=False)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("FAIL PUBLIC_URL_SETTING is CRM_PUBLIC_URL", r.stdout)
+
+
+class SalesOntology(unittest.TestCase):
+    """platform/tests/fixtures/sales-ontology.json, the worked example in docs/module.md: sales's
+    domain as a descriptor, with a made-up example company's pack as its tenant layer."""
+
+    def setUp(self):
+        self.d = json.loads((ROOT / "platform/tests/fixtures/sales-ontology.json").read_text())
+        self.actions = self.d["action_types"]
+
+    @unittest.skipUnless(DOCKER, "needs docker")
+    def test_passes_the_descriptor_checks(self):
+        node = re.search(r"^NODE_IMAGE=(\S+)$", (ROOT / "platform/foundation/versions.env").read_text(), re.M).group(1)
+        r = subprocess.run(["docker", "run", "--rm", "-v", f"{ROOT / 'platform/tests'}:/tests:ro", node, "node",
+                            "--disable-warning=ExperimentalWarning", "/tests/ontology/descriptor.ts", "/tests/fixtures/sales-ontology.json"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_people_fields_are_marked(self):
+        core = self.d["object_types"]["stakeholder"]["properties"]
+        pack = self.d["tenant"]["object_types"]["stakeholder"]["properties"]
+        self.assertEqual(core["phone"]["sensitivity"], "contact")
+        self.assertEqual(pack["F"]["sensitivity"], "personal")
+        self.assertEqual(pack["birthday"]["sensitivity"], "personal")
+
+    def test_the_stakeholder_role_takes_the_packs_roles(self):
+        link = self.d["object_types"]["deal"]["links"]["stakeholders"]
+        self.assertTrue(link["to"].endswith(":stakeholder"))
+        self.assertNotIn("values", link["properties"]["role"])
+        self.assertTrue(self.d["tenant"]["object_types"]["deal"]["links"]["stakeholders"]["values"]["role"])
+
+    def test_score_and_stage_are_derived(self):
+        deal = self.d["object_types"]["deal"]["properties"]
+        for name in ("score", "stage"):
+            self.assertTrue(deal[name]["derived"] and deal[name]["sources"], name)
+
+    def test_tiers(self):
+        for name in ("deal.set_stage", "stakeholder.create", "ticket.send"):
+            self.assertEqual(self.actions[name]["agent"], "propose", name)
+        add = self.actions["record.add"]
+        self.assertEqual(add["agent"], "undoable")
+        self.assertTrue(add["undo"] and add["idempotent"] and add["params"]["kind"]["label"])
+        layer = self.d["tenant"]["action_types"]
+        self.assertEqual(layer["record.add"]["values"]["kind"], self.d["tenant"]["object_types"]["record"]["values"]["kind"])
+        # The tenant layer adds values, never an action type.
+        self.assertLessEqual(set(layer), set(self.actions))
+
+    def test_money_is_restricted_and_never(self):
+        for name in ("deal.set_discount", "deal.set_contract_amount"):
+            self.assertIn(name, self.d["restricted"])
+            self.assertEqual(self.actions[name]["agent"], "never", name)
+
+    def test_items_and_tickets(self):
+        self.assertIn("t10:HasDeadline", self.d["object_types"]["item"]["implements"])
+        self.assertEqual(self.d["object_types"]["ticket"]["properties"]["work_item"]["to"], "collab:work_item")
+
+
+class NamesNoModule(unittest.TestCase):
+    def test_only_docs_and_fixtures_name_a_module(self):
+        """The template's code, scaffold and checks name no particular module: sales and property
+        references, their tools and their IDs appear only in platform/docs/ and test fixtures. The
+        copied suite in platform/tests/ontology/ is the workspace's, and the generic
+        word property, such as a filter's property key, isn't a reference."""
+        ids = "|".join(("sal" + "es", "prop" + "erty"))
+        pattern = re.compile(rf"\b({ids}):[a-z]|\b({ids})_[a-z]|\"({ids})\"(?!\s*:)|\b(ID|MODULE)=({ids})\b")
+        found = []
+        for f in tracked_files():
+            if not f.startswith("platform/") or f.startswith(("platform/docs/", "platform/tests/fixtures/", "platform/tests/ontology/")):
+                continue
+            try:
+                text = (ROOT / f).read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            found += [f"{f}:{n}" for n, line in enumerate(text.splitlines(), 1) if pattern.search(line)]
+        self.assertEqual(found, [])
 
 
 def broken_links(root, files):

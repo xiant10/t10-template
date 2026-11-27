@@ -9,7 +9,10 @@
 4. Grants agree, as the foundation's check-module-agents.py requires: for each module with
    tools, the actions in its catalog's agent block reached the harnesses, each of its agents' own
    grant, and every runtime clients.yaml gives its tools to. render.py puts them there; this
-   catches a pack it can't.
+   catches a pack it can't. A module whose pack has an ontology (module/ontology.json, its
+   published core descriptor) has generated tools, and each one's grant action is in that
+   block: <id>:read for <id>_describe, _search and _get, <id>:propose for <id>_propose, and
+   <id>:act for <id>_act, which it has when an action is at tier undoable.
 5. On a server (dev, prod, and any built on them), no setting or image pin is left TODO: a
    module built from modules/<id>/src/ needs `make release` first. Every image runs by digest
    there, never a tag such as `latest` that can move under it.
@@ -112,6 +115,22 @@ for part, where in written:
     if not part.is_relative_to(lib.FOUNDATION):
         print(f"warn {where} writes a secret into Compose: give it an `env` in that part's secrets.json instead (docs/guide.md#secrets)")
 
+def generated_tools(pack, mid):
+    """(tool, grant action) for each tool the module's ontology generates, from its pinned core."""
+    core = pack / "ontology.json"
+    if not core.exists():
+        return []
+    try:
+        actions = json.loads(core.read_text()).get("action_types", {})
+    except ValueError:
+        check(f"{mid}: its module/ontology.json is JSON", False)
+        return []
+    tools = [(f"{mid}_{t}", f"{mid}:read") for t in ("describe", "search", "get")] + [(f"{mid}_propose", f"{mid}:propose")]
+    if any(a.get("agent") == "undoable" for a in actions.values()):
+        tools.append((f"{mid}_act", f"{mid}:act"))
+    return tools
+
+
 # 4. Grants. A module says what its agent tools need once, in its catalog's agent block, and
 # render.py gives it out; this checks that it reached every place in the bundle.
 bundle = lib.GENERATED / ENV
@@ -122,6 +141,9 @@ for folder, pack, m in lib.modules():
     if not wiring.has(m, "tools"):
         continue
     actions, audience = lib.grant(pack, m)
+    for tool, action in generated_tools(pack, m["MODULE_ID"]):
+        check(f"{folder.name}: its generated tool {tool} needs {action}, in its catalog's agent block", action in actions,
+              f"add {action} to the agent block of {folder.name}'s permissions catalog")
     auds = set(lib.audiences(pack, m))
     want = set(actions)
     scoped = {a["runtime"]: set(a["actions"]) for a in wiring.agents(m) if a.get("actions") is not None}

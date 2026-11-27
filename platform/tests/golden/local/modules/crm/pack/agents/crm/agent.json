@@ -40,7 +40,7 @@
     "url": "${AUTH_URL:-http://auth-server.t10.svc.cluster.local:18000}",
     "clientId": "agent-ti-crm",
     "clientSecret": "${CRM_AUTH_CLIENT_SECRET:-}",
-    "actions": "agent:use,knowledge:read,crm:read",
+    "actions": "agent:use,knowledge:read,crm:read,crm:propose",
     "audiences": "agent-ti-crm,t10-knowledge,ai-gateway-tools,ai-gateway-llm,t10-crm"
   },
   "tenantSkills": {

@@ -13,6 +13,9 @@ on its own, before it joins the stack. Gate 2 of docs/integration.md.
    and refused without a token or for an agent; with `tools`, its tools over MCP, listed without
    a token, each called by an agent with the actions its catalog grants, and refused for a
    person, without a token, or from a page.
+3. Its ontology, when its manifest lists the ontology feature: the workspace's conformance
+   suite (platform/tests/ontology/, run in NODE_IMAGE), with the fixtures its
+   ontology.conformance.json names. Without the feature, it says so and skips the suite.
 
 Standalone mode (T10_STANDALONE=1) stands in for auth-server with fixed tokens: "Bearer person"
 and "Bearer agent". Against the full stack, `make smoke` checks the same with real tokens.
@@ -20,6 +23,7 @@ and "Bearer agent". Against the full stack, `make smoke` checks the same with re
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -152,6 +156,35 @@ def service(mid, url, tools=True):
         check("a tool call is refused from a page", rpc(url, "tools/call", call, "agent", {"Origin": "http://page.example"})[0] == 403)
 
 
+SUITE = lib.ROOT / "platform" / "tests" / "ontology"
+
+
+def ontology(mid, src, url):
+    """The ontology conformance suite against the running module, when its manifest lists it."""
+    code, body = http(f"{url}/v1/module", "person")
+    features = body.get("features", []) if code == 200 and isinstance(body, dict) else []
+    if "ontology" not in features:
+        print("skip its manifest doesn't list the ontology feature, so the ontology suite doesn't run")
+        return
+    config = src / "ontology.conformance.json"
+    check(f"{config.relative_to(lib.ROOT)} names its fixtures for the suite", config.exists())
+    if not config.exists():
+        return
+    # The suite runs in a container, so the module's address on this machine is the host's.
+    target = re.sub(r"^http://(127\.0\.0\.1|localhost)(?=[:/]|$)", "http://host.docker.internal", url)
+    run = subprocess.run(["docker", "run", "--rm", "--add-host=host.docker.internal:host-gateway",
+                          "-v", f"{SUITE}:/suite:ro", "-v", f"{config.resolve()}:/config.json:ro",
+                          lib.versions()["NODE_IMAGE"], "node", "--disable-warning=ExperimentalWarning",
+                          "/suite/conformance.ts", target, "/config.json"], capture_output=True, text=True)
+    for line in (run.stdout + run.stderr).strip().splitlines():
+        if line.startswith("FAIL"):
+            check(f"ontology: {line[5:].split(': ', 1)[0]}", False, line[5:].split(": ", 1)[-1])
+        elif line.startswith(("ok ", "skip ")):
+            print(line.replace("ok   ", "ok   ontology: ", 1).replace("skip ", "skip ontology: ", 1))
+    check("the ontology conformance suite passes", run.returncode == 0,
+          "" if any(out.startswith("FAIL") for out in run.stdout.splitlines()) else (run.stderr or run.stdout)[-400:])
+
+
 def main(argv):
     if len(argv) not in (1, 2):
         sys.exit(__doc__)
@@ -162,6 +195,8 @@ def main(argv):
     url = argv[1] if len(argv) == 2 else alone.url(mid)
     print(f"\n== {mid}: its service, {url}")
     service(mid, url.rstrip("/"), wiring.has(m, "tools"))
+    print(f"\n== {mid}: its ontology")
+    ontology(mid, src, url.rstrip("/"))
     lib.finish(f": {mid} keeps the module contract on its own; next, make up && make smoke")
 
 
