@@ -1,0 +1,385 @@
+{
+  "module": "sales",
+  "version": 1,
+  "object_types": {
+    "account": {
+      "label": "Account",
+      "label_zh": "客户单位",
+      "description": "An organisation a rep sells to. Private to its rep.",
+      "title": "name",
+      "implements": [],
+      "properties": {
+        "name": {
+          "type": "string",
+          "name": "Name",
+          "name_zh": "名称"
+        },
+        "rep": {
+          "type": "string",
+          "name": "Rep",
+          "name_zh": "负责人"
+        }
+      },
+      "links": {
+        "deals": {
+          "to": "sales:deal",
+          "many": true
+        }
+      }
+    },
+    "stakeholder": {
+      "label": "Stakeholder",
+      "label_zh": "关键人",
+      "description": "A person at an account who matters to a deal. The pack adds the fields a company keeps about people.",
+      "title": "name",
+      "implements": [
+        "t10:Person"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "name": "Name",
+          "name_zh": "姓名"
+        },
+        "phone": {
+          "type": "string",
+          "name": "Phone",
+          "name_zh": "电话",
+          "sensitivity": "contact"
+        },
+        "account": {
+          "type": "ref",
+          "to": "sales:account"
+        }
+      },
+      "links": {}
+    },
+    "deal": {
+      "label": "Deal",
+      "label_zh": "商机项目",
+      "description": "One opportunity at an account, scored from its ledger.",
+      "title": "name",
+      "implements": [],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "account": {
+          "type": "ref",
+          "to": "sales:account"
+        },
+        "amount": {
+          "type": "money_fen"
+        },
+        "stage": {
+          "type": "enum",
+          "derived": true,
+          "sources": true
+        },
+        "score": {
+          "type": "integer",
+          "derived": true,
+          "sources": true
+        },
+        "band": {
+          "type": "enum",
+          "values": [
+            "A",
+            "B",
+            "C"
+          ],
+          "derived": true,
+          "sources": true
+        },
+        "notes": {
+          "type": "text"
+        },
+        "contract_amount": {
+          "type": "money_fen",
+          "name": "Contract amount",
+          "name_zh": "合同金额"
+        },
+        "discount": {
+          "type": "decimal",
+          "name": "Discount",
+          "name_zh": "折扣"
+        }
+      },
+      "links": {
+        "stakeholders": {
+          "to": "sales:stakeholder",
+          "many": true,
+          "properties": {
+            "role": {
+              "type": "enum"
+            }
+          }
+        },
+        "records": {
+          "to": "sales:record",
+          "many": true
+        },
+        "items": {
+          "to": "sales:item",
+          "many": true
+        },
+        "tickets": {
+          "to": "sales:ticket",
+          "many": true
+        }
+      }
+    },
+    "record": {
+      "label": "Record",
+      "label_zh": "行动记录",
+      "description": "One fact in the ledger. Never edited; an undo writes a compensating record.",
+      "title": "summary",
+      "implements": [],
+      "properties": {
+        "summary": {
+          "type": "text"
+        },
+        "kind": {
+          "type": "enum"
+        },
+        "deal": {
+          "type": "ref",
+          "to": "sales:deal"
+        },
+        "at": {
+          "type": "timestamp"
+        },
+        "undoes": {
+          "type": "ref",
+          "to": "sales:record"
+        }
+      },
+      "links": {}
+    },
+    "item": {
+      "label": "Meeting or to-do",
+      "label_zh": "日程待办",
+      "title": "title",
+      "implements": [
+        "t10:HasDeadline"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "timestamp"
+        }
+      },
+      "links": {},
+      "description": "A meeting or to-do on a deal, with its deadline."
+    },
+    "ticket": {
+      "label": "Ticket",
+      "label_zh": "工单",
+      "title": "title",
+      "implements": [],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "work_item": {
+          "type": "ref",
+          "to": "collab:work_item"
+        }
+      },
+      "links": {},
+      "description": "A request sent to colleagues through collab, as a work item there."
+    }
+  },
+  "action_types": {
+    "record.add": {
+      "label": "Add a record",
+      "label_zh": "记录",
+      "on": "deal",
+      "params": {
+        "kind": {
+          "type": "enum",
+          "required": true,
+          "label": true
+        },
+        "summary": {
+          "type": "text",
+          "required": true
+        }
+      },
+      "permission": "sales:record.add",
+      "idempotent": true,
+      "undo": true,
+      "undo_window": 86400,
+      "agent": "undoable"
+    },
+    "deal.set_stage": {
+      "label": "Change stage",
+      "label_zh": "推进阶段",
+      "on": "deal",
+      "params": {
+        "to": {
+          "type": "enum",
+          "required": true
+        },
+        "because": {
+          "type": "ref",
+          "to": "sales:record"
+        }
+      },
+      "permission": "sales:deal.update",
+      "idempotent": false,
+      "undo": false,
+      "agent": "propose"
+    },
+    "stakeholder.create": {
+      "label": "Add a person",
+      "label_zh": "新增关键人",
+      "params": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "account": {
+          "type": "ref",
+          "to": "sales:account",
+          "required": true
+        }
+      },
+      "permission": "sales:stakeholder.create",
+      "idempotent": false,
+      "undo": false,
+      "agent": "propose"
+    },
+    "ticket.send": {
+      "label": "Send a ticket",
+      "label_zh": "发起工单",
+      "on": "deal",
+      "params": {
+        "title": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "permission": "sales:ticket.send",
+      "idempotent": false,
+      "undo": false,
+      "agent": "propose"
+    },
+    "deal.set_discount": {
+      "label": "Set the discount",
+      "label_zh": "设置折扣",
+      "on": "deal",
+      "params": {
+        "percent": {
+          "type": "decimal",
+          "required": true
+        }
+      },
+      "permission": "sales:deal.discount",
+      "idempotent": false,
+      "undo": false,
+      "agent": "never"
+    },
+    "deal.set_contract_amount": {
+      "label": "Set the contract amount",
+      "label_zh": "设置合同金额",
+      "on": "deal",
+      "params": {
+        "amount": {
+          "type": "money_fen",
+          "required": true
+        }
+      },
+      "permission": "sales:deal.contract",
+      "idempotent": false,
+      "undo": false,
+      "agent": "never"
+    }
+  },
+  "restricted": [
+    "deal.set_contract_amount",
+    "deal.set_discount"
+  ],
+  "interfaces": [
+    "t10:HasDeadline",
+    "t10:Person"
+  ],
+  "events": {
+    "deal.stage_changed": {
+      "on": "deal"
+    }
+  },
+  "tenant": {
+    "revision": 3,
+    "object_types": {
+      "deal": {
+        "values": {
+          "stage": [
+            "线索",
+            "需求确认",
+            "方案",
+            "商务谈判",
+            "签约"
+          ]
+        },
+        "links": {
+          "stakeholders": {
+            "values": {
+              "role": [
+                "决策人",
+                "使用人",
+                "技术把关",
+                "采购"
+              ]
+            }
+          }
+        }
+      },
+      "record": {
+        "values": {
+          "kind": [
+            "拜访",
+            "演示",
+            "情报收集",
+            "需求挖掘"
+          ]
+        }
+      },
+      "stakeholder": {
+        "properties": {
+          "F": {
+            "type": "text",
+            "name": "Family",
+            "name_zh": "家庭",
+            "sensitivity": "personal"
+          },
+          "birthday": {
+            "type": "date",
+            "name": "Birthday",
+            "name_zh": "生日",
+            "sensitivity": "personal"
+          },
+          "hobby": {
+            "type": "string",
+            "name": "Hobby",
+            "name_zh": "爱好"
+          }
+        }
+      }
+    },
+    "action_types": {
+      "record.add": {
+        "values": {
+          "kind": [
+            "拜访",
+            "演示",
+            "情报收集",
+            "需求挖掘"
+          ]
+        }
+      }
+    }
+  }
+}

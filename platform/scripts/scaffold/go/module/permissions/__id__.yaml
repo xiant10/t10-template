@@ -12,7 +12,7 @@
   "agent": {
     "server": "__id__",
     "audience": "__service__",
-    "actions": ["__id__:read"]
+    "actions": ["__id__:read", "__id__:propose"]
   },
   "version": 1,
   "permissions": [

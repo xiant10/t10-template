@@ -65,7 +65,8 @@
         "work:write",
         "work:send",
         "knowledge:read",
-        "crm:read"
+        "crm:read",
+        "crm:propose"
       ],
       "audiences": [
         "agent-ti",
@@ -86,7 +87,8 @@
         "work:read",
         "work:write",
         "knowledge:read",
-        "crm:read"
+        "crm:read",
+        "crm:propose"
       ],
       "audiences": [
         "agent-pi",
@@ -108,7 +110,8 @@
         "work:write",
         "work:send",
         "knowledge:read",
-        "crm:read"
+        "crm:read",
+        "crm:propose"
       ],
       "audiences": [
         "ai-gateway",
@@ -130,7 +133,8 @@
         "work:read",
         "work:write",
         "knowledge:read",
-        "crm:read"
+        "crm:read",
+        "crm:propose"
       ],
       "audiences": [
         "agent-pi",
@@ -148,7 +152,8 @@
       "actions": [
         "agent:use",
         "knowledge:read",
-        "crm:read"
+        "crm:read",
+        "crm:propose"
       ],
       "audiences": [
         "agent-ti-crm",

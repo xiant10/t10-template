@@ -4,6 +4,25 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.12.0 (Nov 26, 2026)
+
+Modules are ontology-first: a new module declares its records and actions as an ontology, which t10-modkit serves to apps and agents, and the gates check it against the t10 workspace's ontology contract.
+
+- **The scaffold serves an ontology.** `ontology.go` declares an example object type, `note` (private to its author until shared, kept in memory), and three actions agents may draft, `note.create`, `note.edit` and `note.archive`, and `m.NewOntology` serves them beside `module.Module`: the descriptor at `/v1/ontology`, the object, action, undo and proposal routes, and the `<id>_describe`, `_search`, `_get` and `_propose` tools. The manifest lists the `ontology` feature. The pack has `module/ontology.json`, the published core, which `TestOntologyIsPinned` keeps equal to the code (`UPDATE_ONTOLOGY=1` writes it), and the catalog's `agent` block gains `<id>:propose`. `T10_MODKIT` is `v0.2.0`, which has `NewOntology`, `Caller.Agent`, the manifest's `features`, and generated tools that answer `invalid_arguments` to a missing required argument.
+- **`make contract` runs the ontology conformance suite** when the module's manifest lists `ontology`: the workspace's `contracts/ontology/` suite, copied in `platform/tests/ontology/`, in `NODE_IMAGE` (`node:24-alpine`, pinned by digest in `versions.env`), with the fixtures the module's `ontology.conformance.json` names. A module whose manifest doesn't list it skips the suite and says so.
+- **`make check` fails when a generated tool's grant action isn't in the catalog's `agent` block**: `<id>:read`, `<id>:propose`, and `<id>:act` when `module/ontology.json` has an `undoable` action, naming the tool and the action.
+- **`platform/docs/module.md` has "Model its ontology"**: the method (objects, links and actions first; core or tenant layer; derived values; tiers; private rows), sales as the worked example, and what each gate checks. `platform/tests/fixtures/sales-ontology.json` is that example as a descriptor, with a made-up example company's pack as its tenant layer, and `make test-template` runs the descriptor checks on it.
+- **`make new-module` refuses an ID with a dash** for a module whose code is in the project, since its ontology's module name and action prefix take none. A module in its own repo may still have one.
+
+**In a project:** nothing is required, and a module without an ontology keeps working: `make contract` skips the suite for it. To give an existing module in `modules/<id>/src/` an ontology:
+
+1. `go get github.com/xiant10/t10-modkit@v0.2.0 && go mod tidy` in the folder.
+2. Add an `ontology.go` declaring its records and actions over its own store (the scaffold's, `platform/scripts/scaffold/go/ontology.go`, shows how), and call it after building the `module.Module` in `main.go`; the manifest then lists the feature.
+3. Add `<id>:propose`, and `<id>:act` if an action is `undoable`, to the `agent` block of `module/permissions/<id>.yaml`.
+4. Add `module/ontology.json` with a test like the scaffold's `TestOntologyIsPinned`, and `ontology.conformance.json` naming its fixtures.
+
+Then `make check`, `make contract MODULE=<id>` and `make verify`.
+
 ## v0.11.0 (Nov 26, 2026)
 
 The template's Go kit is gone: what every module answers comes from t10-modkit, a public Go module, imported by tag (upstream U16). A module's image builds from its own folder, with no copy of anything beside it.
