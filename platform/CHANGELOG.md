@@ -8,6 +8,7 @@ Releases are git tags on the template; how to make one, and how a project takes 
 
 - **The scaffold's example pages by the cursor's sort value and ID**, not by finding the cursor's row again. A note that was edited, archived or hidden between pages made the next page start from the top and repeat the first. The comment shows the same condition in SQL. `TestSearchPagesByCursor` covers it.
 
+- **`make contract`'s ontology suite reaches the module on Linux**, such as in CI: its container shares the machine's network there, since `host.docker.internal` doesn't reach a server that listens only on `127.0.0.1`. Docker Desktop keeps using `host.docker.internal`. In `v0.12.0` every suite check failed with `fetch failed` on Linux.
 - **`make contract`'s ontology suite calls the agent tools over MCP**, as an agent does: they must be listed the same with no token and an agent's, answer inside `<module_record>`, leave never-tier actions out of describe and refuse to draft them, mask every sensitive value, refuse a filter or sort on one, and need their grant action. Checks a module has nothing for (no sensitive property, no never-tier action) skip and say so. `platform/tests/ontology/` is the workspace's suite at the commit `SOURCE` names.
 
 **In a project:** nothing is required. A module whose search was copied from the scaffold's before this release should page the same way. A module whose tools mask sensitive values only in their descriptions, not in their answers, now fails `make contract`.
