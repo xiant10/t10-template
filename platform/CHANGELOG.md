@@ -4,11 +4,10 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
-## v0.12.1 (unreleased)
+## v0.12.1 (Nov 27, 2026)
 
 - **`T10_MODKIT` is `v0.2.1`**, which fixes a crash in `v0.2.0`: a module running with auth-server panicked on every person's request, because `module.Auth` read the agent of a person's own token. `make verify`'s smoke test found it in CI. `v0.2.1` changes nothing else.
 - **The scaffold's example pages by the cursor's sort value and ID**, not by finding the cursor's row again. A note that was edited, archived or hidden between pages made the next page start from the top and repeat the first. The comment shows the same condition in SQL. `TestSearchPagesByCursor` covers it.
-
 - **`make contract`'s ontology suite reaches the module on Linux**, such as in CI: its container shares the machine's network there, since `host.docker.internal` doesn't reach a server that listens only on `127.0.0.1`. Docker Desktop keeps using `host.docker.internal`. In `v0.12.0` every suite check failed with `fetch failed` on Linux.
 - **`make contract`'s ontology suite calls the agent tools over MCP**, as an agent does: they must be listed the same with no token and an agent's, answer inside `<module_record>`, leave never-tier actions out of describe and refuse to draft them, mask every sensitive value, refuse a filter or sort on one, and need their grant action. Checks a module has nothing for (no sensitive property, no never-tier action) skip and say so. `platform/tests/ontology/` is the workspace's suite at the commit `SOURCE` names.
 
