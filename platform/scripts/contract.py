@@ -170,9 +170,15 @@ def ontology(mid, src, url):
     check(f"{config.relative_to(lib.ROOT)} names its fixtures for the suite", config.exists())
     if not config.exists():
         return
-    # The suite runs in a container, so the module's address on this machine is the host's.
-    target = re.sub(r"^http://(127\.0\.0\.1|localhost)(?=[:/]|$)", "http://host.docker.internal", url)
-    run = subprocess.run(["docker", "run", "--rm", "--add-host=host.docker.internal:host-gateway",
+    # The suite runs in a container, which has to reach the module where it listens, on this
+    # machine's 127.0.0.1. On Linux, Docker runs on this machine, so the container shares its
+    # network. Elsewhere, Docker Desktop runs it in a VM, where host.docker.internal is this machine.
+    if sys.platform.startswith("linux"):
+        target, network = url, ["--network=host"]
+    else:
+        target = re.sub(r"^http://(127\.0\.0\.1|localhost)(?=[:/]|$)", "http://host.docker.internal", url)
+        network = ["--add-host=host.docker.internal:host-gateway"]
+    run = subprocess.run(["docker", "run", "--rm", *network,
                           "-v", f"{SUITE}:/suite:ro", "-v", f"{config.resolve()}:/config.json:ro",
                           lib.versions()["NODE_IMAGE"], "node", "--disable-warning=ExperimentalWarning",
                           "/suite/conformance.ts", target, "/config.json"], capture_output=True, text=True)
