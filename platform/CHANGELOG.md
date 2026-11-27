@@ -4,6 +4,13 @@ What each release of the template changes, newest first, and what a project must
 
 Releases are git tags on the template; how to make one, and how a project takes it, is [`docs/template-updates.md`](docs/template-updates.md). A change that needs nothing from a project bumps the last number; one that asks a project to do something bumps the middle one and says what under **In a project**.
 
+## v0.13.1 (Nov 27, 2026)
+
+- **`T10_MODKIT` is `v0.3.1`**: running a module alone, `Bearer person@<user>[:<perms>]` is another person in the same tenant. A module whose records are each person's own, such as a sales rep's book, names it as the suite's out-of-scope token, since `person:` is the same person without permissions.
+- **`make contract`'s ontology suite skips the `undo_conflict` check when `undo` has no `dependent`**: for a module where nothing can depend on its undoable action. It used to fail. `platform/tests/ontology/` is the workspace's suite at the commit `SOURCE` names.
+
+**In a project:** nothing is required. A module may move to `v0.3.1` with `go get github.com/xiant10/t10-modkit@v0.3.1 && go mod tidy` in its folder when it needs the new token; `make check` warns while it's behind.
+
 ## v0.13.0 (Nov 27, 2026)
 
 - **`T10_MODKIT` is `v0.3.0`**, with the ontology's review fixes:

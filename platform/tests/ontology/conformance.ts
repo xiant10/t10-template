@@ -14,7 +14,8 @@
  *   forbidden, wrong_state, apply: {action, object, params}: an action in_scope sees but may not take, one on an
  *     object in a state that refuses it, and a repeatable one;
  *   idempotent: an idempotent action; undo: an undo action, with `dependent`, an action that then depends on it. A
- *     module with none leaves them out, and those checks are skipped;
+ *     module with none leaves them out, and those checks are skipped. A module where nothing can depend on an undo
+ *     action leaves out `dependent`, and the undo_conflict check is skipped;
  *   sensitive: optionally, a reference in_scope sees with a value in a sensitive property, for the masking checks.
  *     Without it the suite looks for one with in_scope's search of each type that has a sensitive property;
  *   mcp: optionally, the path of the module's MCP endpoint, /mcp when left out.
@@ -40,7 +41,7 @@ export type Config = {
 	wrong_state: ActionCase;
 	apply: ActionCase;
 	idempotent?: ActionCase;
-	undo?: ActionCase & { dependent: ActionCase };
+	undo?: ActionCase & { dependent?: ActionCase };
 	sensitive?: string;
 	mcp?: string;
 };
@@ -276,11 +277,11 @@ export async function runSuite(base: string, config: Config, log: (line: string)
 	await check("undo after a dependent change answers 409 undo_conflict", async () => {
 		const a = await apply(config.undo!, person, `conformance-${randomUUID()}`);
 		must(a.status === 200, `apply answered ${a.status} ${a.text}`);
-		const dep = await apply(config.undo!.dependent);
+		const dep = await apply(config.undo!.dependent!);
 		must(dep.status === 200, `the dependent change answered ${dep.status} ${dep.text}`);
 		const u = await call("POST", `/v1/undo/${a.body.undo.id}`, person, {});
 		must(u.status === 409 && u.body?.error === "undo_conflict", `undo answered ${u.status} ${u.text}`);
-	}, config.undo ? undefined : "the config names no undoable action");
+	}, !config.undo ? "the config names no undoable action" : !config.undo.dependent ? "the config names no change that depends on an undoable one" : undefined);
 	await check("proposals list the caller's own drafts", async () => {
 		const a = await call("GET", "/v1/proposals", person);
 		must(a.status === 200 && Array.isArray(a.body?.proposals), `answered ${a.status} ${a.text}`);
